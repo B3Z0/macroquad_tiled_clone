@@ -1,0 +1,15 @@
+[package]
+name = "macroquad_tiled_clone"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <you@example.com>"]
+license = "MIT OR Apache-2.0"
+description = "Minimal Tiled JSON loader & renderer for Macroquad"
+
+[dependencies]
+macroquad = "0.4"               # for rendering & textures
+nanoserde = "0.2.1"              # for zero-alloc JSON parsing
+# (Later you can swap to serde + serde_json if desired)
+
+[dev-dependencies]
+anyhow = "1.0"                 # for quick prototyping of errors in examples/tests

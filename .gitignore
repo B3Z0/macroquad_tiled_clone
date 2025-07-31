@@ -1,0 +1,9 @@
+# target directory
+/target/
+
+# IDE/editor
+.idea/
+*.rs.bk
+
+# MacOS
+.DS_Store
