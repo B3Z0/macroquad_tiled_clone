@@ -8,6 +8,8 @@ pub enum Error {
     Parse(DeJsonErr),
     /// No layers were found in the map JSON
     NoLayer,
+    /// A layer's data length does not match width * height or map dimensions are zero
+    InvalidLayerSize(String),
     /// File I/O error
     Io(io::Error),
     /// Unsupported file format (non-JSON)
@@ -31,6 +33,7 @@ impl fmt::Display for Error {
         match self {
             Error::Parse(e) => write!(f, "JSON parse error: {}", e),
             Error::NoLayer => write!(f, "No layers found in map JSON"),
+            Error::InvalidLayerSize(name) => write!(f, "Invalid layer size for layer '{}': data length does not match map dimensions", name),
             Error::Io(e) => write!(f, "I/O error: {}", e),
             Error::UnsupportedFormat(ext) => write!(f, "Unsupported file format: {}", ext),
         }

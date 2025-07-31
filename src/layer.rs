@@ -1,5 +1,6 @@
 use crate::tiled::RawLayer;
 
+#[derive(Debug)]
 pub struct Layer {
     pub name: String,
     pub data: Vec<u32>,
