@@ -1,11 +1,15 @@
 mod error;
 mod layer;
 mod tiled;
+mod geom;
+mod command;
 
 pub use error::Error;
 use nanoserde::DeJson;
 pub use tiled::RawMap;
 pub use layer::Layer;
+pub use geom::{Rect, Vec2};
+pub use command::{DrawCommand, TileRegion};
 
 use macroquad::prelude::*;
 use std::fs;
@@ -87,7 +91,7 @@ impl Map {
                     let sx = (idx % cols) * self.tilewidth;
                     let sy = (idx / cols) * self.tileheight;
 
-                    let rect = Some (Rect::new (
+                    let rect = Some (macroquad::prelude::Rect::new (
                         sx as f32,
                         sy as f32,
                         self.tilewidth as f32,
