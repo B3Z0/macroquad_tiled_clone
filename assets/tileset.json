@@ -1,0 +1,33 @@
+{
+  "columns": 2,
+  "image": "tileset.png",
+  "imageheight": 64,
+  "imagewidth": 64,
+  "margin": 0,
+  "name": "tileset",
+  "spacing": 0,
+  "tilecount": 4,
+  "tiledversion": "1.10.2",
+  "tileheight": 32,
+  "tiles": [
+    {
+      "id": 0,
+      "type": "Wall"
+    },
+    {
+      "id": 1,
+      "type": "Enemy"
+    },
+    {
+      "id": 2,
+      "type": "Start"
+    },
+    {
+      "id": 3,
+      "type": "Finish"
+    }
+  ],
+  "tilewidth": 32,
+  "type": "tileset",
+  "version": "1.10"
+}

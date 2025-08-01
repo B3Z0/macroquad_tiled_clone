@@ -3,15 +3,18 @@ mod layer;
 mod tiled;
 mod geom;
 mod command;
+mod tileset;
 
+pub use tileset::TileSet;
 pub use error::Error;
 use nanoserde::DeJson;
-pub use tiled::RawMap;
+use crate::tiled::{RawMap, RawLayer, RawTilesetRef, RawTilesetDef};
 pub use layer::Layer;
 pub use geom::{Rect, Vec2};
 pub use command::{DrawCommand, TileRegion};
 
 use macroquad::prelude::*;
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
@@ -22,30 +25,27 @@ pub struct Map {
     pub height: u32,
     pub tilewidth: u32,
     pub tileheight: u32,
-    pub layers: Vec<Layer>,
+    pub layers: HashMap<String, Layer>,
+    pub tilesets: HashMap<String, TileSet>,
 }
 
 impl Map {
-    /// Load a Tiled JSON map from a string
     pub fn load_from_str(json: &str) -> Result<Self, Error> {
         let raw: RawMap = RawMap::deserialize_json(json)?;
-        if raw.width == 0 || raw.height == 0 {
-            return Err(Error::InvalidLayerSize("<map>".to_string()));
-        }
-        if raw.layers.is_empty() {
-            return Err(Error::NoLayer);
-        }
-        for layer in &raw.layers {
-            if layer.data.len() != (raw.width * raw.height) as usize {
-                return Err(Error::InvalidLayerSize(layer.name.clone()));
-            }
-        }
 
+        // Convert raw layers to our Layer type
         let layers = raw
             .layers
             .into_iter()
-            .map(|raw_layer| Layer::from_raw(raw_layer))
-            .collect();
+            .map(|raw_layer| {
+                let layer = Layer::from_raw(raw_layer);
+                (layer.name.clone(), layer)
+            })
+            .collect::<HashMap<String, Layer>>();
+
+        if layers.is_empty() {
+            return Err(Error::NoLayer);
+        }
 
         Ok(Self {
             width: raw.width,
@@ -53,6 +53,7 @@ impl Map {
             tilewidth: raw.tilewidth,
             tileheight: raw.tileheight,
             layers,
+            tilesets: HashMap::new(),
         })
     }
 
@@ -78,7 +79,7 @@ impl Map {
     /// Draw all tiles using a single tileset texture
     pub fn draw(&self, texture: &Texture2D) {
         let cols = texture.width() as u32 / self.tilewidth;
-        for layer in &self.layers {
+        for (_, layer) in &self.layers {
             for y in 0..self.height {
                 for x in 0..self.width {
                     // gid is the global ID of the tile
@@ -107,14 +108,12 @@ impl Map {
                             source: rect,
                             ..Default::default()
                         },
-                )
+                    );
                 }
             }
         }
     }
 }
-
-
 
 
 #[cfg(test)]
@@ -163,23 +162,37 @@ mod tests {
 
     #[test]
     fn load_valid_single_layer_json() {
-        let map = Map::load_from_str(VALID_JSON_SINGLE_LAYER).expect("Should load valid single-layer JSON");
+        let map = Map::load_from_str(VALID_JSON_SINGLE_LAYER)
+            .expect("Should load valid single-layer JSON");
         assert_eq!(map.width, 2);
         assert_eq!(map.height, 2);
         assert_eq!(map.layers.len(), 1);
-        let layer = &map.layers[0];
+
+        // Access by layer name
+        let layer = map
+            .layers
+            .get("layer1")
+            .expect("layer1 should be present");
         assert_eq!(layer.name, "layer1");
         assert_eq!(layer.data, vec![1, 0, 0, 1]);
     }
 
     #[test]
     fn load_valid_multi_layer_json() {
-        let map = Map::load_from_str(VALID_JSON_MULTI_LAYER).expect("Should load valid multi-layer JSON");
+        let map = Map::load_from_str(VALID_JSON_MULTI_LAYER)
+            .expect("Should load valid multi-layer JSON");
         assert_eq!(map.width, 3);
         assert_eq!(map.height, 1);
         assert_eq!(map.layers.len(), 2);
-        assert_eq!(map.layers[0].name, "bg");
-        assert_eq!(map.layers[1].name, "fg");
+
+        // Check both layers by name
+        let bg = map.layers.get("bg").expect("bg layer should exist");
+        assert_eq!(bg.name, "bg");
+        assert_eq!(bg.data, vec![1, 1, 1]);
+
+        let fg = map.layers.get("fg").expect("fg layer should exist");
+        assert_eq!(fg.name, "fg");
+        assert_eq!(fg.data, vec![0, 2, 0]);
     }
 
     #[test]
