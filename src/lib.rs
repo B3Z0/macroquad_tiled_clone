@@ -1,235 +1,158 @@
-mod error;
-mod layer;
-mod tiled;
-mod geom;
-mod command;
-mod tileset;
-
-pub use tileset::TileSet;
-pub use error::Error;
-use nanoserde::DeJson;
-use crate::tiled::{RawMap, RawLayer, RawTilesetRef, RawTilesetDef};
-pub use layer::Layer;
-pub use geom::{Rect, Vec2};
-pub use command::{DrawCommand, TileRegion};
-
 use macroquad::prelude::*;
 use std::collections::HashMap;
-use std::fs;
-use std::path::Path;
+pub mod map;
+mod view;
+pub use view::query_visible;
 
-/// Minimal tile map representation
-#[derive(Debug)]
-pub struct Map {
-    pub width: u32,
-    pub height: u32,
-    pub tilewidth: u32,
-    pub tileheight: u32,
-    pub layers: HashMap<String, Layer>,
-    pub tilesets: HashMap<String, TileSet>,
+pub const CHUNK_SIZE: i32 = 256;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TileId(pub u32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TileHandle(pub u32);
+
+pub type LayerIdx = u16;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ChunkCoord {
+    pub x: i32,
+    pub y: i32,
+}
+
+#[inline]
+pub fn world_to_chunk(p: Vec2) -> ChunkCoord {
+    ChunkCoord {
+        x: (p.x as i32).div_euclid(CHUNK_SIZE),
+        y: (p.y as i32).div_euclid(CHUNK_SIZE),
+    }
+}
+
+#[inline]
+pub fn rel(p: Vec2) -> Vec2 {
+    vec2(
+        (p.x as i32).rem_euclid(CHUNK_SIZE) as f32,
+        (p.y as i32).rem_euclid(CHUNK_SIZE) as f32,
+    )
+}
+
+#[derive(Debug, Clone)]
+pub struct TileRec {
+    pub handle: TileHandle,
+    pub id: TileId,
+    pub rel_pos: Vec2,
+}
+
+pub struct GlobalChunk {
+    pub layers: HashMap<LayerIdx, Vec<TileRec>>,
+}
+
+impl GlobalChunk {
+    pub fn new() -> Self {
+        GlobalChunk {
+            layers: HashMap::new(),
+        }
+    }
+}
+
+pub struct TileLoc {
+    pub chunk: ChunkCoord,
+    pub layer: LayerIdx,
+    pub index: usize,
+}
+
+pub struct GlobalIndex {
+    pub buckets: HashMap<ChunkCoord, GlobalChunk>,
+    pub handles: Vec<Option<TileLoc>>,
+    next_handle: u32,
+}
+
+impl GlobalIndex {
+    pub fn new() -> Self {
+        GlobalIndex {
+            buckets: HashMap::new(),
+            handles: Vec::new(),
+            next_handle: 0,
+        }
+    }
+
+    fn alloc_handle(&mut self) -> TileHandle {
+        let h = TileHandle(self.next_handle);
+        self.next_handle += 1;
+        self.handles.push(None);
+        h
+    }
+}
+
+impl GlobalIndex {
+    pub fn add_tile(
+        &mut self,
+        id: TileId,
+        layer: LayerIdx,
+        world: Vec2) -> TileHandle {
+            let cc = world_to_chunk(world);
+            let handle = self.alloc_handle();
+            let bucket = self.buckets
+                .entry(cc)
+                .or_insert_with(GlobalChunk::new);
+            let vec = bucket.layers
+                .entry(layer)
+                .or_insert_with(Vec::new);
+            
+            let idx = vec.len();
+            vec.push(TileRec {
+                handle, id, rel_pos: rel(world)
+            });
+            self.handles[handle.0 as usize] = Some(TileLoc {
+                chunk: cc,
+                layer,
+                index: idx,
+            });
+            handle
+    }
+}
+
+pub struct Map { 
+    pub index: GlobalIndex,
+    pub tile_w: u32,
+    pub tile_h: u32,
 }
 
 impl Map {
-    pub fn load_from_str(json: &str) -> Result<Self, Error> {
-        let raw: RawMap = RawMap::deserialize_json(json)?;
-
-        // Convert raw layers to our Layer type
-        let layers = raw
-            .layers
-            .into_iter()
-            .map(|raw_layer| {
-                let layer = Layer::from_raw(raw_layer);
-                (layer.name.clone(), layer)
-            })
-            .collect::<HashMap<String, Layer>>();
-
-        if layers.is_empty() {
-            return Err(Error::NoLayer);
-        }
-
-        Ok(Self {
-            width: raw.width,
-            height: raw.height,
-            tilewidth: raw.tilewidth,
-            tileheight: raw.tileheight,
-            layers,
-            tilesets: HashMap::new(),
-        })
+    pub fn load_basic(path:&str) -> anyhow::Result<Self> {
+        let mut index = GlobalIndex::new();
+        let (tw, th) = map::load_basic_json(&mut index, path)?;
+        Ok(Self { index, tile_w: tw, tile_h: th })
     }
 
-    /// Load a map from a file path, only supporting JSON for now
-    pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
-        let path_ref = path.as_ref();
-        let path_str = path_ref.display().to_string();
-        let ext_opt = path_ref.extension().and_then(|e| e.to_str());
-
-        match ext_opt {
-            Some("json") => {
-                let content = fs::read_to_string(path)?;
-                Map::load_from_str(&content)
-            }
-            // Any other extension is considered unsupported
-            Some(_) => Err(Error::UnsupportedFormat(path_str)),
-
-            // If no extension, also unsupported
-            None => Err(Error::UnsupportedFormat(path_str)),
-        }
-    }
-
-    /// Draw all tiles using a single tileset texture
     pub fn draw(&self, texture: &Texture2D) {
-        let cols = texture.width() as u32 / self.tilewidth;
-        for (_, layer) in &self.layers {
-            for y in 0..self.height {
-                for x in 0..self.width {
-                    // gid is the global ID of the tile
-                    let gid = layer.data[(y * self.width + x) as usize]; // get the GID 
-                    if gid == 0 {
-                        continue;
-                    }
-                    
-                    let idx = gid - 1;
-                    let sx = (idx % cols) * self.tilewidth;
-                    let sy = (idx / cols) * self.tileheight;
+        let cols = texture.width() as u32 / self.tile_w;    // sprites per row
 
-                    let rect = Some (macroquad::prelude::Rect::new (
-                        sx as f32,
-                        sy as f32,
-                        self.tilewidth as f32,
-                        self.tileheight as f32,
-                    ));
+        for (cc, bucket) in &self.index.buckets {
+            for vec in bucket.layers.values() {
+                for rec in vec {
+                    let gid  = rec.id.0;
+                    let idx  = gid - 1;                     // GID 1 → atlas 0
+                    let sx   = (idx % cols) * self.tile_w;  // left  px in atlas
+                    let sy   = (idx / cols) * self.tile_h;  // top   px in atlas
 
                     draw_texture_ex(
                         texture,
-                        x as f32 * self.tilewidth as f32,
-                        y as f32 * self.tileheight as f32,
+                        (cc.x * CHUNK_SIZE) as f32 + rec.rel_pos.x,
+                        (cc.y * CHUNK_SIZE) as f32 + rec.rel_pos.y,
                         WHITE,
                         DrawTextureParams {
-                            source: rect,
+                            source: Some(Rect::new(
+                                sx as f32,
+                                sy as f32,
+                                self.tile_w as f32,
+                                self.tile_h as f32,
+                            )),
                             ..Default::default()
                         },
                     );
                 }
             }
         }
-    }
-}
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-    use std::path::Path;
-
-    // A set of JSON snippets for testing
-    const VALID_JSON_SINGLE_LAYER: &str = r#"
-    {
-        "width": 2,
-        "height": 2,
-        "tilewidth": 8,
-        "tileheight": 8,
-        "layers": [
-            { "name": "layer1", "data": [1, 0, 0, 1] }
-        ]
-    }
-    "#;
-
-    const VALID_JSON_MULTI_LAYER: &str = r#"
-    {
-        "width": 3,
-        "height": 1,
-        "tilewidth": 8,
-        "tileheight": 8,
-        "layers": [
-            { "name": "bg", "data": [1, 1, 1] },
-            { "name": "fg", "data": [0, 2, 0] }
-        ]
-    }
-    "#;
-
-    const EMPTY_LAYERS_JSON: &str = r#"
-    {
-        "width": 1,
-        "height": 1,
-        "tilewidth": 8,
-        "tileheight": 8,
-        "layers": []
-    }
-    "#;
-
-    const MALFORMED_JSON: &str = "{ not valid json";
-
-    #[test]
-    fn load_valid_single_layer_json() {
-        let map = Map::load_from_str(VALID_JSON_SINGLE_LAYER)
-            .expect("Should load valid single-layer JSON");
-        assert_eq!(map.width, 2);
-        assert_eq!(map.height, 2);
-        assert_eq!(map.layers.len(), 1);
-
-        // Access by layer name
-        let layer = map
-            .layers
-            .get("layer1")
-            .expect("layer1 should be present");
-        assert_eq!(layer.name, "layer1");
-        assert_eq!(layer.data, vec![1, 0, 0, 1]);
-    }
-
-    #[test]
-    fn load_valid_multi_layer_json() {
-        let map = Map::load_from_str(VALID_JSON_MULTI_LAYER)
-            .expect("Should load valid multi-layer JSON");
-        assert_eq!(map.width, 3);
-        assert_eq!(map.height, 1);
-        assert_eq!(map.layers.len(), 2);
-
-        // Check both layers by name
-        let bg = map.layers.get("bg").expect("bg layer should exist");
-        assert_eq!(bg.name, "bg");
-        assert_eq!(bg.data, vec![1, 1, 1]);
-
-        let fg = map.layers.get("fg").expect("fg layer should exist");
-        assert_eq!(fg.name, "fg");
-        assert_eq!(fg.data, vec![0, 2, 0]);
-    }
-
-    #[test]
-    fn error_on_empty_layers() {
-        let err = Map::load_from_str(EMPTY_LAYERS_JSON).unwrap_err();
-        assert!(matches!(err, Error::NoLayer));
-    }
-
-    #[test]
-    fn error_on_malformed_json() {
-        let err = Map::load_from_str(MALFORMED_JSON).unwrap_err();
-        assert!(matches!(err, Error::Parse(_)));
-    }
-
-    #[test]
-    fn load_from_file_valid_json() {
-        // Write a temporary JSON file
-        let path = Path::new("test_map.json");
-        fs::write(&path, VALID_JSON_SINGLE_LAYER).expect("Failed to write temp JSON");
-
-        let map = Map::load_from_file(&path).expect("Should load map from file");
-        assert_eq!(map.width, 2);
-        assert_eq!(map.layers.len(), 1);
-
-        // Clean up
-        fs::remove_file(&path).unwrap();
-    }
-
-    #[test]
-    fn error_on_unsupported_extension() {
-        let err = Map::load_from_file("level.tmx").unwrap_err();
-        assert!(matches!(err, Error::UnsupportedFormat(ext) if ext == "level.tmx"));
-    }
-
-    #[test]
-    fn error_on_missing_file() {
-        let err = Map::load_from_file("nonexistent.json").unwrap_err();
-        assert!(matches!(err, Error::Io(_)));
     }
 }
