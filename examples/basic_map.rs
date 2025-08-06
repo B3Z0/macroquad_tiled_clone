@@ -1,5 +1,5 @@
 use macroquad::prelude::*;
-use macroquad_tiled_clone::map::{self, Map};
+use macroquad_tiled_clone::map::Map;
 
 // ❶ Override the default 800 × 450 pixels here
 fn window_conf() -> Conf {
@@ -13,7 +13,7 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]     // ❷ pass the window config function here
 async fn main() {
-    let map = Map::load_basic("assets/map.json")
+    let map = Map::load_basic("assets2/map.json")
         .await
         .expect("Failed to load map");
 

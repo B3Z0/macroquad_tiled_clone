@@ -63,7 +63,7 @@ async fn load_tileset_data(
     let mut tilesets = Vec::with_capacity(j.tilesets.len());
     for ts in &j.tilesets {
         if !ts.source.ends_with(".json") {
-            panic!("Tileset source must be a JSON file");
+            panic!("Tileset {} source must be a JSON file", ts.source);
         }
 
         let ext_txt = std::fs::read_to_string(map_dir.join(&ts.source))?;

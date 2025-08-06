@@ -1,0 +1,21 @@
+{
+  "columns": 3,
+  "image": "pixil-frame-0.png",
+  "imageheight": 120,
+  "imagewidth": 120,
+  "margin": 0,
+  "name": "tileset2",
+  "spacing": 0,
+  "tilecount": 9,
+  "tiledversion": "1.10.2",
+  "tileheight": 32,
+  "tiles": [
+    {
+      "id": 0,
+      "type": "grass"
+    }
+  ],
+  "tilewidth": 32,
+  "type": "tileset",
+  "version": "1.10"
+}
