@@ -11,16 +11,15 @@ fn window_conf() -> Conf {
     }
 }
 
-#[macroquad::main(window_conf)]     // ❷ pass the conf fn here
+#[macroquad::main(window_conf)]     // ❷ pass the window config function here
 async fn main() {
-    // everything else stays the same
-    let map = Map::load_basic("assets/map.json").expect("load");
-    let tex = load_texture("assets/tileset.png").await.unwrap();
-    tex.set_filter(FilterMode::Nearest);
+    let map = Map::load_basic("assets/map.json")
+        .await
+        .expect("Failed to load map");
 
     loop {
         clear_background(BLACK);
-        map.draw(&tex);          // your draw already uses world coords
+        map.draw();
         next_frame().await;
     }
 }
