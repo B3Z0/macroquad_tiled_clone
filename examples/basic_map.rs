@@ -1,5 +1,5 @@
 use macroquad::prelude::*;
-use macroquad_tiled_clone::Map;
+use macroquad_tiled_clone::map::{self, Map};
 
 // ❶ Override the default 800 × 450 pixels here
 fn window_conf() -> Conf {

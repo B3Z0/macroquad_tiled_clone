@@ -1,7 +1,7 @@
 use macroquad::prelude::*;
 use serde::Deserialize;
 
-use crate::{GlobalIndex, TileId, LayerIdx};
+use crate::{spatial::CHUNK_SIZE, GlobalIndex, LayerIdx, TileId};
 
 #[derive(Deserialize)]
 struct JsonLayer {
@@ -40,4 +40,50 @@ pub fn load_basic_json(map: &mut GlobalIndex, path: &str) -> anyhow::Result<(u32
         }
     }
     Ok((tw, th))
+}
+
+
+pub struct Map { 
+    pub index: GlobalIndex,
+    pub tile_w: u32,
+    pub tile_h: u32,
+}
+
+impl Map {
+    pub fn load_basic(path:&str) -> anyhow::Result<Self> {
+        let mut index = GlobalIndex::new();
+        let (tw, th) = load_basic_json(&mut index, path)?;
+        Ok(Self { index, tile_w: tw, tile_h: th })
+    }
+
+    pub fn draw(&self, texture: &Texture2D) {
+        let cols = texture.width() as u32 / self.tile_w;    // sprites per row
+
+        for (cc, bucket) in &self.index.buckets {
+            for vec in bucket.layers.values() {
+                for rec in vec {
+                    let gid  = rec.id.0;
+                    let idx  = gid - 1;                     // GID 1 → atlas 0
+                    let sx   = (idx % cols) * self.tile_w;  // left  px in atlas
+                    let sy   = (idx / cols) * self.tile_h;  // top   px in atlas
+
+                    draw_texture_ex(
+                        texture,
+                        (cc.x * CHUNK_SIZE) as f32 + rec.rel_pos.x,
+                        (cc.y * CHUNK_SIZE) as f32 + rec.rel_pos.y,
+                        WHITE,
+                        DrawTextureParams {
+                            source: Some(Rect::new(
+                                sx as f32,
+                                sy as f32,
+                                self.tile_w as f32,
+                                self.tile_h as f32,
+                            )),
+                            ..Default::default()
+                        },
+                    );
+                }
+            }
+        }
+    }
 }

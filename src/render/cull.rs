@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use macroquad::prelude::*;
-use crate::{GlobalIndex, ChunkCoord, TileRec, LayerIdx};
+use crate::{spatial::{ChunkCoord, TileRec}, GlobalIndex, LayerIdx};
 
 pub struct LocalChunkView<'g> {
     pub coord: ChunkCoord,
