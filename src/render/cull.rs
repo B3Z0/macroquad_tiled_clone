@@ -3,7 +3,7 @@ use crate::{
     GlobalIndex, LayerIdx,
 };
 use macroquad::prelude::*;
-use std::{collections::HashMap};
+use std::collections::HashMap;
 
 const CULL_MARGIN_CHUNKS: i32 = 1;
 

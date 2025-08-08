@@ -17,14 +17,19 @@ pub struct ChunkCoord {
     pub y: i32,
 }
 
-// spatial/index.rs (or anywhere)
+pub const FLIP_H: u32 = 0x8000_0000; // bit 31
+pub const FLIP_V: u32 = 0x4000_0000; // bit 30
+pub const FLIP_D: u32 = 0x2000_0000; // bit 29
+pub const GID_MASK: u32 = 0x1FFF_FFFF; // keep lower 29 bits (bit 28 is free)
+
 impl TileId {
     #[inline] pub fn raw(self) -> u32 { self.0 }
-    #[inline] pub fn clean(self) -> u32 { self.0 & 0x1FFF_FFFF }
-    #[inline] pub fn flip_h(self) -> bool { self.0 & 0x8000_0000 != 0 }
-    #[inline] pub fn flip_v(self) -> bool { self.0 & 0x4000_0000 != 0 }
-    #[inline] pub fn flip_d(self) -> bool { self.0 & 0x2000_0000 != 0 }
+    #[inline] pub fn clean(self) -> u32 { self.0 & GID_MASK }
+    #[inline] pub fn flip_h(self) -> bool { (self.0 & FLIP_H) != 0 }
+    #[inline] pub fn flip_v(self) -> bool { (self.0 & FLIP_V) != 0 }
+    #[inline] pub fn flip_d(self) -> bool { (self.0 & FLIP_D) != 0 }
 }
+
 
 #[inline]
 pub fn world_to_chunk(p: Vec2) -> ChunkCoord {

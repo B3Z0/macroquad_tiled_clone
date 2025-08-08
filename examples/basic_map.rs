@@ -26,6 +26,15 @@ async fn main() {
             Vec2::ZERO,
             screen_size
         );
+
+        // Draw the frame rate in the top-left corner
+        draw_text(
+            &format!("FPS: {}", get_fps()),
+            screen_width() - 135.0,
+            55.0,
+            30.0,
+            RED,
+        );
         
         next_frame().await;
     }

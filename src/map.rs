@@ -1,117 +1,10 @@
-use crate::{ir_map::{IrLayerKind, IrTileset}, render::*};
+use crate::render::*;
 use anyhow::Context;
 use macroquad::prelude::*;
-use serde::Deserialize;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use crate::ir_map::*;
 use crate::loader::json_loader::*;
 use crate::{spatial::CHUNK_SIZE, GlobalIndex, LayerIdx, TileId};
-
-#[derive(Deserialize)]
-struct JsonLayer {
-    data: Vec<u32>,
-    width: usize,
-    height: usize,
-}
-
-#[derive(Deserialize)]
-struct JsonMap {
-    tilewidth: u32,
-    tileheight: u32,
-    layers: Vec<JsonLayer>,
-    tilesets: Vec<JsonTilesetRef>,
-}
-
-#[derive(Deserialize)]
-struct JsonTilesetRef {
-    firstgid: u32,
-    source: String,
-}
-
-#[derive(Deserialize)]
-struct ExternalTileset {
-    tilewidth: u32,
-    tileheight: u32,
-    tilecount: u32,
-    columns: u32,
-    image: String, // tileset.png
-    spacing: u32,
-    margin: u32,
-}
-
-fn parse_map_file(path: &str) -> anyhow::Result<(JsonMap, PathBuf)> {
-    let p = Path::new(path);
-
-    if p.extension().and_then(|e| e.to_str()) != Some("json") {
-        anyhow::bail!("Map file must be a JSON file: {}", path);
-    }
-
-    let txt = std::fs::read_to_string(p).with_context(|| format!("Reading map file {}", path))?;
-
-    let j: JsonMap =
-        serde_json::from_str(&txt).with_context(|| format!("Parsing map file {}", path))?;
-
-    let map_dir = p
-        .parent()
-        .map(|d| d.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("./"));
-
-    Ok((j, map_dir))
-}
-
-async fn load_tileset_data(
-    j: &JsonMap,
-    map_dir: &Path,
-) -> anyhow::Result<(Vec<TilesetInfo>, Vec<u16>)> {
-    let mut tilesets = Vec::with_capacity(j.tilesets.len());
-    for ts in &j.tilesets {
-        if !ts.source.ends_with(".json") {
-            anyhow::bail!("Tileset {} source must be a JSON file", ts.source);
-        }
-
-        let ext_txt = std::fs::read_to_string(map_dir.join(&ts.source))?;
-        let ext: ExternalTileset = serde_json::from_str(&ext_txt)?;
-
-        let img_rel = &ext.image;
-        let img_path = map_dir.join(img_rel);
-
-        let tex: Texture2D = load_texture(img_path.to_str().unwrap())
-            .await
-            .with_context(|| format!("Loading texture {}", img_rel))?;
-        tex.set_filter(FilterMode::Nearest);
-
-        tilesets.push(TilesetInfo {
-            first_gid: ts.firstgid,
-            tilecount: ext.tilecount,
-            cols: ext.columns,
-            tex,
-            tile_w: ext.tilewidth,
-            tile_h: ext.tileheight,
-            spacing: ext.spacing,
-            margin: ext.margin,
-        });
-    }
-
-    tilesets.sort_unstable_by_key(|t| t.first_gid);
-
-    let max_gid = tilesets
-        .iter()
-        .map(|t| t.first_gid + t.tilecount - 1)
-        .max()
-        .unwrap_or(0);
-
-    let mut gid_lut = vec![u16::MAX; (max_gid + 1) as usize];
-
-    for (i, t) in tilesets.iter().enumerate() {
-        let start = t.first_gid;
-        let end = t.first_gid + t.tilecount;
-        for gid in start..end {
-            gid_lut[gid as usize] = i as u16;
-        }
-    }
-
-    Ok((tilesets, gid_lut))
-}
 
 pub struct TilesetInfo {
     pub first_gid: u32,
@@ -234,18 +127,51 @@ impl Map {
         })
     }
 
+    #[inline]
+    fn params_for_flips(&self, gid: TileId, tile_w: f32, tile_h:f32) -> (f32, bool, bool, Option<Vec2>) {
+        let h = gid.flip_h(); // horizontal flip
+        let v = gid.flip_v(); // vertical flip
+        let d = gid.flip_d(); // diagonal flip
+
+        let flip_x = h ^ d; // flip horizontally if not diagonal
+        let flip_y = v;
+        let pivot = Some(vec2(tile_w / 2.0, tile_h / 2.0)); 
+
+        let rotation = match (h, v, d) {
+            (false, _, _) => 0.0, // no flip
+
+            (true, false, false) => std::f32::consts::FRAC_PI_2, // + 90 degrees (with flip)
+            (true, false, true) => std::f32::consts::FRAC_PI_2, // - 90 defrees
+            (true, true, false) => std::f32::consts::FRAC_PI_2, // + 90 degrees
+            (true, true, true) => std::f32::consts::PI, // 180 degrees
+        };
+
+        (rotation, flip_x, flip_y, pivot)
+    }
 
     #[inline]
-    pub fn ts_for_gid(&self, gid: TileId) -> Option<(&TilesetInfo, u32)> {
+    fn ts_for_gid(&self, gid: TileId) -> Option<(&TilesetInfo, u32)> {
+        // Clean the tile ID by removing flip/rotation flags, keep only the actual ID number
         let clean = gid.clean() as usize;
+        
+        // Check if the cleaned ID is within the bounds of our lookup table
         if clean >= self.gid_lut.len() {
             return None;
         }
+        
+        // Get the tileset index from the lookup table
         let idx = self.gid_lut[clean];
+        
+        // If the index is u16::MAX, this means the tile ID doesn't map to any tileset
         if idx == u16::MAX {
             return None;
         }
+        
+        // Get the tileset info from the tilesets array
         let ts = &self.tilesets[idx as usize];
+        
+        // Return the tileset info and the local ID within that tileset
+        // The local ID is calculated by subtracting the tileset's first GID from the cleaned tile ID
         Some((ts, gid.clean() - ts.first_gid))
     }
 
@@ -267,6 +193,9 @@ impl Map {
                             let row = local / ts.cols;
                             let sx = ts.margin + col * (ts.tile_w + ts.spacing);
                             let sy = ts.margin + row * (ts.tile_h + ts.spacing);
+                            
+                            let (rotation, flip_x, flip_y, pivot) = 
+                                self.params_for_flips(rec.id, ts.tile_w as f32, ts.tile_h as f32);
 
                             draw_texture_ex(
                                 &ts.tex,
@@ -280,6 +209,10 @@ impl Map {
                                         ts.tile_w as f32,
                                         ts.tile_h as f32,
                                     )),
+                                    rotation,
+                                    flip_x,
+                                    flip_y,
+                                    pivot,
                                     ..Default::default()
                                 },
                             );
