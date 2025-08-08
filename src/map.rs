@@ -2,6 +2,7 @@ use crate::render::*;
 use anyhow::Context;
 use macroquad::prelude::*;
 use std::path::Path;
+use std::thread::yield_now;
 use crate::ir_map::*;
 use crate::loader::json_loader::*;
 use crate::{spatial::CHUNK_SIZE, GlobalIndex, LayerIdx, TileId};
@@ -20,7 +21,8 @@ pub struct TilesetInfo {
 pub struct Map {
     pub index: GlobalIndex,
     pub tilesets: Vec<TilesetInfo>,
-    gid_lut: Vec<u16>,
+    gid_lut: Vec<u16>, //lookup table for tile GIDs to tileset indices
+    layer_order: Vec<LayerIdx>,
     pub tile_w: u32,
     pub tile_h: u32,
 }
@@ -89,11 +91,11 @@ impl Map {
         }
 
         let mut index = GlobalIndex::new();
+        let mut layer_order: Vec<LayerIdx> = Vec::new();
 
         for (lz, layer) in ir.layers.iter().enumerate() {
-            if !layer.visible {
-                continue;
-            }
+            let lid = lz as LayerIdx;
+            let mut inserted_any = false;
 
             if let IrLayerKind::Tiles { width, height, data } = &layer.kind {
                 let tw = ir.tile_w as f32;
@@ -114,7 +116,11 @@ impl Map {
                         lz as LayerIdx,
                         world,
                     );
+                    inserted_any = true;
                 }
+            }
+            if inserted_any {
+                layer_order.push(lid);
             }
         }
 
@@ -122,6 +128,7 @@ impl Map {
             index,
             tilesets,
             gid_lut,
+            layer_order,
             tile_w: ir.tile_w,
             tile_h: ir.tile_h,
         })
@@ -181,45 +188,47 @@ impl Map {
     }
 
     fn draw_chunks(&self, view: LocalView) {
-        for LocalChunkView { coord: cc, layers } in view.chunks {
-            let mut layer_keys: Vec<_> = layers.keys().cloned().collect();
-            layer_keys.sort_unstable();
-
-            for lid in layer_keys {
-                if let Some(vec) = layers.get(&lid) {
+        for &layerId in &self.layer_order {
+            for LocalChunkView { coord: cc, layers} in &view.chunks {
+                if let Some(vec) = layers.get(&layerId) {
                     for rec in vec {
-                        if let Some((ts, local)) = self.ts_for_gid(rec.id) {
-                            let col = local % ts.cols;
-                            let row = local / ts.cols;
-                            let sx = ts.margin + col * (ts.tile_w + ts.spacing);
-                            let sy = ts.margin + row * (ts.tile_h + ts.spacing);
-                            
-                            let (rotation, flip_x, flip_y, pivot) = 
-                                self.params_for_flips(rec.id, ts.tile_w as f32, ts.tile_h as f32);
+                        let (ts, local) = match self.ts_for_gid(rec.id) {
+                            Some(x) => x,
+                            None => continue,
+                        };
 
-                            draw_texture_ex(
-                                &ts.tex,
-                                (cc.x * CHUNK_SIZE) as f32 + rec.rel_pos.x,
-                                (cc.y * CHUNK_SIZE) as f32 + rec.rel_pos.y,
-                                WHITE,
-                                DrawTextureParams {
-                                    source: Some(Rect::new(
-                                        sx as f32,
-                                        sy as f32,
-                                        ts.tile_w as f32,
-                                        ts.tile_h as f32,
-                                    )),
-                                    rotation,
-                                    flip_x,
-                                    flip_y,
-                                    pivot,
-                                    ..Default::default()
-                                },
-                            );
-                        }
+                        let col = local % ts.cols;
+                        let row = local / ts.cols;
+                        let sx = ts.margin + col * (ts.tile_w + ts.spacing);
+                        let sy = ts.margin + row * (ts.tile_h + ts.spacing);
+
+                        let x = ((cc.x * CHUNK_SIZE) as f32 + rec.rel_pos.x).round();
+                        let y = ((cc.y * CHUNK_SIZE) as f32 + rec.rel_pos.y).round();
+
+                        let (rotation, flip_x, flip_y, pivot) = 
+                            self.params_for_flips(rec.id, ts.tile_w as f32, ts.tile_h as f32);
+                    
+                        draw_texture_ex(
+                            &ts.tex, 
+                            x, y, 
+                            WHITE,
+                            DrawTextureParams {
+                                source: Some(Rect::new(
+                                    sx as f32,
+                                    sy as f32, 
+                                    ts.tile_w as f32,
+                                    ts.tile_h as f32,
+                                )), 
+                                rotation,
+                                flip_x,
+                                flip_y,
+                                pivot,
+                                ..Default::default()
+                            }
+                        );
                     }
                 }
             }
-        }
+        } 
     }
 }
