@@ -78,7 +78,7 @@ pub fn query_visible_rect<'g>(g: &'g GlobalIndex, view_min: Vec2, view_max: Vec2
         }
     }
 
-    chunks.sort_by_key(|c| (c.coord.x, c.coord.y));
+    //chunks.sort_by_key(|c| (c.coord.x, c.coord.y));
 
     LocalView { chunks }
 }
