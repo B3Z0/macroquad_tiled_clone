@@ -1,9 +1,10 @@
+use crate::{ir_map::{IrLayerKind, IrTileset}, render::*};
 use anyhow::Context;
 use macroquad::prelude::*;
 use serde::Deserialize;
-use std::{path::{Path, PathBuf}};
-use crate::render::*;
-
+use std::path::{Path, PathBuf};
+use crate::ir_map::*;
+use crate::loader::json_loader::*;
 use crate::{spatial::CHUNK_SIZE, GlobalIndex, LayerIdx, TileId};
 
 #[derive(Deserialize)]
@@ -34,6 +35,8 @@ struct ExternalTileset {
     tilecount: u32,
     columns: u32,
     image: String, // tileset.png
+    spacing: u32,
+    margin: u32,
 }
 
 fn parse_map_file(path: &str) -> anyhow::Result<(JsonMap, PathBuf)> {
@@ -84,6 +87,8 @@ async fn load_tileset_data(
             tex,
             tile_w: ext.tilewidth,
             tile_h: ext.tileheight,
+            spacing: ext.spacing,
+            margin: ext.margin,
         });
     }
 
@@ -115,6 +120,8 @@ pub struct TilesetInfo {
     pub tex: Texture2D,
     pub tile_w: u32,
     pub tile_h: u32,
+    pub spacing: u32,
+    pub margin: u32,
 }
 
 pub struct Map {
@@ -126,26 +133,95 @@ pub struct Map {
 }
 
 impl Map {
-    pub async fn load_basic(path: &str) -> anyhow::Result<Self> {
-        let (j, map_dir) = parse_map_file(path)?;
-        let (tilesets, gid_lut) = load_tileset_data(&j, &map_dir).await?;
+    pub async fn load(path: &str) -> anyhow::Result<Self> {
+        let (ir, base) = decode_map_file_to_ir(path)?;
+        Self::from_ir(ir, &base).await
+    }
 
-        
-        let mut index = GlobalIndex::new();
-        let tw = j.tilewidth;
-        let th = j.tileheight;
+    pub async fn from_ir(ir: IrMap, base_dir: &Path) -> anyhow::Result<Self> {
+        let mut tilesets = Vec::new();
 
-        for (lz, layer) in j.layers.iter().enumerate() {
-            for (idx, gid) in layer.data.iter().enumerate() {
-                if *gid == 0 {
-                    continue;
+        let mut max_gid = 0u32;
+        for t in &ir.tilesets {
+            match t {
+                IrTileset::Atlas { 
+                    first_gid,
+                    image,
+                    tile_w, 
+                    tile_h, 
+                    tilecount, 
+                    columns, 
+                    spacing, 
+                    margin } => {
+                    max_gid = max_gid.max(*first_gid + tilecount - 1);
+                } 
+            }
+        }
+
+        let mut gid_lut =  vec![u16::MAX; (max_gid + 1) as usize];
+
+        for (i, t) in ir.tilesets.iter().enumerate() {
+            match t {
+                IrTileset::Atlas { 
+                    first_gid, 
+                    image, 
+                    tile_w, 
+                    tile_h, 
+                    tilecount, 
+                    columns, 
+                    spacing, 
+                    margin } => {
+                    let img_path = base_dir.join(image);
+                    let tex = load_texture(img_path.to_str().unwrap())
+                        .await
+                        .with_context(|| format!("Loading texture {}", image))?;
+                    tex.set_filter(FilterMode::Nearest);
+
+                    tilesets.push(TilesetInfo {
+                        first_gid: *first_gid,
+                        tilecount: *tilecount,
+                        cols: *columns,
+                        tex,
+                        tile_w: *tile_w,
+                        tile_h: *tile_h,
+                        spacing: *spacing,
+                        margin: *margin,
+                    });
+
+                    for gid in *first_gid..(*first_gid + *tilecount) {
+                        gid_lut[gid as usize] = i as u16;
+                    }
                 }
+            }
+        }
 
-                let col = idx % layer.width;
-                let row = idx / layer.width;
-                let world = vec2(col as f32 * tw as f32, row as f32 * th as f32);
+        let mut index = GlobalIndex::new();
 
-                index.add_tile(TileId(*gid), lz as LayerIdx, world);
+        for (lz, layer) in ir.layers.iter().enumerate() {
+            if !layer.visible {
+                continue;
+            }
+
+            if let IrLayerKind::Tiles { width, height, data } = &layer.kind {
+                let tw = ir.tile_w as f32;
+                let th = ir.tile_h as f32;
+
+                for (idx, gid) in data.iter().enumerate() {
+                    if *gid == 0 {
+                        continue;
+                    }
+
+                    let col = idx % *width;
+                    let row = idx / *width;
+                    let mut world = vec2(col as f32 * tw, row as f32 * th);
+                    world += layer.offset;
+
+                    index.add_tile(
+                        TileId(*gid),
+                        lz as LayerIdx,
+                        world,
+                    );
+                }
             }
         }
 
@@ -153,28 +229,33 @@ impl Map {
             index,
             tilesets,
             gid_lut,
-            tile_w: tw,
-            tile_h: th,
+            tile_w: ir.tile_w,
+            tile_h: ir.tile_h,
         })
     }
+
 
     #[inline]
     pub fn ts_for_gid(&self, gid: TileId) -> Option<(&TilesetInfo, u32)> {
         let clean = gid.clean() as usize;
-        if clean >= self.gid_lut.len() { return None; }
+        if clean >= self.gid_lut.len() {
+            return None;
+        }
         let idx = self.gid_lut[clean];
-        if idx == u16::MAX { return None; }
+        if idx == u16::MAX {
+            return None;
+        }
         let ts = &self.tilesets[idx as usize];
         Some((ts, gid.clean() - ts.first_gid))
     }
-    
+
     pub fn draw_visible_rect(&self, view_min: Vec2, view_max: Vec2) {
         let view = query_visible_rect(&self.index, view_min, view_max);
         self.draw_chunks(view);
     }
 
     fn draw_chunks(&self, view: LocalView) {
-        for LocalChunkView { coord: cc, layers} in view.chunks {
+        for LocalChunkView { coord: cc, layers } in view.chunks {
             let mut layer_keys: Vec<_> = layers.keys().cloned().collect();
             layer_keys.sort_unstable();
 
@@ -184,8 +265,8 @@ impl Map {
                         if let Some((ts, local)) = self.ts_for_gid(rec.id) {
                             let col = local % ts.cols;
                             let row = local / ts.cols;
-                            let sx = col * ts.tile_w;
-                            let sy = row * ts.tile_h;
+                            let sx = ts.margin + col * (ts.tile_w + ts.spacing);
+                            let sy = ts.margin + row * (ts.tile_h + ts.spacing);
 
                             draw_texture_ex(
                                 &ts.tex,
