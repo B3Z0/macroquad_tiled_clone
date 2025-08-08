@@ -17,6 +17,15 @@ pub struct ChunkCoord {
     pub y: i32,
 }
 
+// spatial/index.rs (or anywhere)
+impl TileId {
+    #[inline] pub fn raw(self) -> u32 { self.0 }
+    #[inline] pub fn clean(self) -> u32 { self.0 & 0x1FFF_FFFF }
+    #[inline] pub fn flip_h(self) -> bool { self.0 & 0x8000_0000 != 0 }
+    #[inline] pub fn flip_v(self) -> bool { self.0 & 0x4000_0000 != 0 }
+    #[inline] pub fn flip_d(self) -> bool { self.0 & 0x2000_0000 != 0 }
+}
+
 #[inline]
 pub fn world_to_chunk(p: Vec2) -> ChunkCoord {
     ChunkCoord {
@@ -108,3 +117,4 @@ impl GlobalIndex {
             handle
     }
 }
+

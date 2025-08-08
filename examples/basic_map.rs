@@ -16,10 +16,17 @@ async fn main() {
     let map = Map::load_basic("assets2/map.json")
         .await
         .expect("Failed to load map");
+    
+    let screen_size = Vec2::new(screen_width(), screen_height());
 
     loop {
         clear_background(BLACK);
-        map.draw();
+        
+        map.draw_visible_rect(
+            Vec2::ZERO,
+            screen_size
+        );
+        
         next_frame().await;
     }
 }

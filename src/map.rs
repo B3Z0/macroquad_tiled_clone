@@ -1,7 +1,8 @@
+use anyhow::Context;
 use macroquad::prelude::*;
 use serde::Deserialize;
-use std::path::{Path, PathBuf};
-use anyhow::Context;
+use std::{path::{Path, PathBuf}};
+use crate::render::*;
 
 use crate::{spatial::CHUNK_SIZE, GlobalIndex, LayerIdx, TileId};
 
@@ -32,24 +33,23 @@ struct ExternalTileset {
     tileheight: u32,
     tilecount: u32,
     columns: u32,
-    image: String,  // tileset.png
+    image: String, // tileset.png
 }
 
 fn parse_map_file(path: &str) -> anyhow::Result<(JsonMap, PathBuf)> {
     let p = Path::new(path);
 
     if p.extension().and_then(|e| e.to_str()) != Some("json") {
-        panic!("Map file must be a JSON file");
+        anyhow::bail!("Map file must be a JSON file: {}", path);
     }
 
-    let txt = std::fs::read_to_string(p)
-        .with_context(|| format!("Reading map file {}", path))?;
+    let txt = std::fs::read_to_string(p).with_context(|| format!("Reading map file {}", path))?;
 
-    let j: JsonMap = serde_json::from_str(&txt)
-        .with_context(|| format!("Parsing map file {}", path))?;
+    let j: JsonMap =
+        serde_json::from_str(&txt).with_context(|| format!("Parsing map file {}", path))?;
 
-
-    let map_dir = p.parent()
+    let map_dir = p
+        .parent()
         .map(|d| d.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("./"));
 
@@ -57,13 +57,13 @@ fn parse_map_file(path: &str) -> anyhow::Result<(JsonMap, PathBuf)> {
 }
 
 async fn load_tileset_data(
-    j : &JsonMap,
-    map_dir: &Path
+    j: &JsonMap,
+    map_dir: &Path,
 ) -> anyhow::Result<(Vec<TilesetInfo>, Vec<u16>)> {
     let mut tilesets = Vec::with_capacity(j.tilesets.len());
     for ts in &j.tilesets {
         if !ts.source.ends_with(".json") {
-            panic!("Tileset {} source must be a JSON file", ts.source);
+            anyhow::bail!("Tileset {} source must be a JSON file", ts.source);
         }
 
         let ext_txt = std::fs::read_to_string(map_dir.join(&ts.source))?;
@@ -75,7 +75,7 @@ async fn load_tileset_data(
         let tex: Texture2D = load_texture(img_path.to_str().unwrap())
             .await
             .with_context(|| format!("Loading texture {}", img_rel))?;
-        tex.set_filter(FilterMode::Nearest);   
+        tex.set_filter(FilterMode::Nearest);
 
         tilesets.push(TilesetInfo {
             first_gid: ts.firstgid,
@@ -89,7 +89,8 @@ async fn load_tileset_data(
 
     tilesets.sort_unstable_by_key(|t| t.first_gid);
 
-    let max_gid = tilesets.iter()
+    let max_gid = tilesets
+        .iter()
         .map(|t| t.first_gid + t.tilecount - 1)
         .max()
         .unwrap_or(0);
@@ -99,44 +100,13 @@ async fn load_tileset_data(
     for (i, t) in tilesets.iter().enumerate() {
         let start = t.first_gid;
         let end = t.first_gid + t.tilecount;
-        for gid  in start..end {
+        for gid in start..end {
             gid_lut[gid as usize] = i as u16;
         }
-
     }
 
     Ok((tilesets, gid_lut))
 }
-
-
-/// Load a one-layer orthogonal map exported from Tiled as JSON (CSV data).
-///
-/// • Inserts every non-empty GID into the spatial hash.
-/// • Returns `(tilewidth, tileheight)` so the caller can draw correctly.
-pub fn load_basic_json(map: &mut GlobalIndex, path: &str) -> anyhow::Result<(u32, u32)> {
-    let txt = std::fs::read_to_string(path)?;
-    let j: JsonMap = serde_json::from_str(&txt)?;
-
-    let tw = j.tilewidth;
-    let th = j.tileheight;
-
-    for (lz, layer) in j.layers.iter().enumerate() {
-        for (idx, gid) in layer.data.iter().enumerate() {
-            if *gid == 0 {
-                continue;
-            }
-
-            let col = idx % layer.width;
-            let row = idx / layer.width;
-            let world = vec2(col as f32 * tw as f32, row as f32 * th as f32);
-
-            map.add_tile(TileId(*gid), lz as LayerIdx, world);
-        }
-    }
-    Ok((tw, th))
-}
-
-
 
 pub struct TilesetInfo {
     pub first_gid: u32,
@@ -158,12 +128,27 @@ pub struct Map {
 impl Map {
     pub async fn load_basic(path: &str) -> anyhow::Result<Self> {
         let (j, map_dir) = parse_map_file(path)?;
-
         let (tilesets, gid_lut) = load_tileset_data(&j, &map_dir).await?;
 
-        let mut index = GlobalIndex::new();
-        let (tw, th) = load_basic_json(&mut index, path)?;
         
+        let mut index = GlobalIndex::new();
+        let tw = j.tilewidth;
+        let th = j.tileheight;
+
+        for (lz, layer) in j.layers.iter().enumerate() {
+            for (idx, gid) in layer.data.iter().enumerate() {
+                if *gid == 0 {
+                    continue;
+                }
+
+                let col = idx % layer.width;
+                let row = idx / layer.width;
+                let world = vec2(col as f32 * tw as f32, row as f32 * th as f32);
+
+                index.add_tile(TileId(*gid), lz as LayerIdx, world);
+            }
+        }
+
         Ok(Self {
             index,
             tilesets,
@@ -174,35 +159,51 @@ impl Map {
     }
 
     #[inline]
-    pub fn ts_for_gid(&self, gid: TileId) -> (&TilesetInfo, u32) {
-        let idx = self.gid_lut[gid.0 as usize] as usize;
-        let ts = &self.tilesets[idx];
-        (ts, gid.0 - ts.first_gid)
+    pub fn ts_for_gid(&self, gid: TileId) -> Option<(&TilesetInfo, u32)> {
+        let clean = gid.clean() as usize;
+        if clean >= self.gid_lut.len() { return None; }
+        let idx = self.gid_lut[clean];
+        if idx == u16::MAX { return None; }
+        let ts = &self.tilesets[idx as usize];
+        Some((ts, gid.clean() - ts.first_gid))
+    }
+    
+    pub fn draw_visible_rect(&self, view_min: Vec2, view_max: Vec2) {
+        let view = query_visible_rect(&self.index, view_min, view_max);
+        self.draw_chunks(view);
     }
 
-    pub fn draw(&self) {
-        for (cc, bucket) in &self.index.buckets {
-            for vec in bucket.layers.values() {
-                for rec in vec {
-                    let (ts, local) = self.ts_for_gid(rec.id);
-                    let sx = (local % ts.cols) * ts.tile_w;
-                    let sy = (local / ts.cols) * ts.tile_h;
+    fn draw_chunks(&self, view: LocalView) {
+        for LocalChunkView { coord: cc, layers} in view.chunks {
+            let mut layer_keys: Vec<_> = layers.keys().cloned().collect();
+            layer_keys.sort_unstable();
 
-                    draw_texture_ex(
-                        &ts.tex,
-                        (cc.x * CHUNK_SIZE) as f32 + rec.rel_pos.x,
-                        (cc.y * CHUNK_SIZE) as f32 + rec.rel_pos.y,
-                        WHITE,
-                        DrawTextureParams {
-                            source: Some(Rect::new(
-                                sx as f32,
-                                sy as f32,
-                                self.tile_w as f32,
-                                self.tile_h as f32,
-                            )),
-                            ..Default::default()
-                        },
-                    );
+            for lid in layer_keys {
+                if let Some(vec) = layers.get(&lid) {
+                    for rec in vec {
+                        if let Some((ts, local)) = self.ts_for_gid(rec.id) {
+                            let col = local % ts.cols;
+                            let row = local / ts.cols;
+                            let sx = col * ts.tile_w;
+                            let sy = row * ts.tile_h;
+
+                            draw_texture_ex(
+                                &ts.tex,
+                                (cc.x * CHUNK_SIZE) as f32 + rec.rel_pos.x,
+                                (cc.y * CHUNK_SIZE) as f32 + rec.rel_pos.y,
+                                WHITE,
+                                DrawTextureParams {
+                                    source: Some(Rect::new(
+                                        sx as f32,
+                                        sy as f32,
+                                        ts.tile_w as f32,
+                                        ts.tile_h as f32,
+                                    )),
+                                    ..Default::default()
+                                },
+                            );
+                        }
+                    }
                 }
             }
         }
