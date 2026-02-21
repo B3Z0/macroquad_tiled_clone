@@ -23,13 +23,27 @@ pub const FLIP_D: u32 = 0x2000_0000; // bit 29
 pub const GID_MASK: u32 = 0x1FFF_FFFF; // keep lower 29 bits (bit 28 is free)
 
 impl TileId {
-    #[inline] pub fn raw(self) -> u32 { self.0 }
-    #[inline] pub fn clean(self) -> u32 { self.0 & GID_MASK }
-    #[inline] pub fn flip_h(self) -> bool { (self.0 & FLIP_H) != 0 }
-    #[inline] pub fn flip_v(self) -> bool { (self.0 & FLIP_V) != 0 }
-    #[inline] pub fn flip_d(self) -> bool { (self.0 & FLIP_D) != 0 }
+    #[inline]
+    pub fn raw(self) -> u32 {
+        self.0
+    }
+    #[inline]
+    pub fn clean(self) -> u32 {
+        self.0 & GID_MASK
+    }
+    #[inline]
+    pub fn flip_h(self) -> bool {
+        (self.0 & FLIP_H) != 0
+    }
+    #[inline]
+    pub fn flip_v(self) -> bool {
+        (self.0 & FLIP_V) != 0
+    }
+    #[inline]
+    pub fn flip_d(self) -> bool {
+        (self.0 & FLIP_D) != 0
+    }
 }
-
 
 #[inline]
 pub fn world_to_chunk(p: Vec2) -> ChunkCoord {
@@ -96,30 +110,23 @@ impl GlobalIndex {
 }
 
 impl GlobalIndex {
-    pub fn add_tile(
-        &mut self,
-        id: TileId,
-        layer: LayerIdx,
-        world: Vec2) -> TileHandle {
-            let cc = world_to_chunk(world);
-            let handle = self.alloc_handle();
-            let bucket = self.buckets
-                .entry(cc)
-                .or_insert_with(GlobalChunk::new);
-            let vec = bucket.layers
-                .entry(layer)
-                .or_insert_with(Vec::new);
-            
-            let idx = vec.len();
-            vec.push(TileRec {
-                handle, id, rel_pos: rel(world)
-            });
-            self.handles[handle.0 as usize] = Some(TileLoc {
-                chunk: cc,
-                layer,
-                index: idx,
-            });
-            handle
+    pub fn add_tile(&mut self, id: TileId, layer: LayerIdx, world: Vec2) -> TileHandle {
+        let cc = world_to_chunk(world);
+        let handle = self.alloc_handle();
+        let bucket = self.buckets.entry(cc).or_insert_with(GlobalChunk::new);
+        let vec = bucket.layers.entry(layer).or_insert_with(Vec::new);
+
+        let idx = vec.len();
+        vec.push(TileRec {
+            handle,
+            id,
+            rel_pos: rel(world),
+        });
+        self.handles[handle.0 as usize] = Some(TileLoc {
+            chunk: cc,
+            layer,
+            index: idx,
+        });
+        handle
     }
 }
-

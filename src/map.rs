@@ -1,11 +1,11 @@
+use crate::ir_map::*;
+use crate::loader::json_loader::*;
 use crate::render::*;
+use crate::{spatial::CHUNK_SIZE, GlobalIndex, LayerIdx, TileId};
 use anyhow::Context;
 use macroquad::prelude::*;
 use std::path::Path;
 use std::thread::yield_now;
-use crate::ir_map::*;
-use crate::loader::json_loader::*;
-use crate::{spatial::CHUNK_SIZE, GlobalIndex, LayerIdx, TileId};
 
 pub struct TilesetInfo {
     pub first_gid: u32,
@@ -39,33 +39,35 @@ impl Map {
         let mut max_gid = 0u32;
         for t in &ir.tilesets {
             match t {
-                IrTileset::Atlas { 
+                IrTileset::Atlas {
                     first_gid,
                     image,
-                    tile_w, 
-                    tile_h, 
-                    tilecount, 
-                    columns, 
-                    spacing, 
-                    margin } => {
+                    tile_w,
+                    tile_h,
+                    tilecount,
+                    columns,
+                    spacing,
+                    margin,
+                } => {
                     max_gid = max_gid.max(*first_gid + tilecount - 1);
-                } 
+                }
             }
         }
 
-        let mut gid_lut =  vec![u16::MAX; (max_gid + 1) as usize];
+        let mut gid_lut = vec![u16::MAX; (max_gid + 1) as usize];
 
         for (i, t) in ir.tilesets.iter().enumerate() {
             match t {
-                IrTileset::Atlas { 
-                    first_gid, 
-                    image, 
-                    tile_w, 
-                    tile_h, 
-                    tilecount, 
-                    columns, 
-                    spacing, 
-                    margin } => {
+                IrTileset::Atlas {
+                    first_gid,
+                    image,
+                    tile_w,
+                    tile_h,
+                    tilecount,
+                    columns,
+                    spacing,
+                    margin,
+                } => {
                     let img_path = base_dir.join(image);
                     let tex = load_texture(img_path.to_str().unwrap())
                         .await
@@ -97,7 +99,13 @@ impl Map {
             let lid = lz as LayerIdx;
             let mut inserted_any = false;
 
-            if let IrLayerKind::Tiles { width, height, data } = &layer.kind {
+            let IrLayerKind::Tiles {
+                width,
+                height,
+                data,
+            } = &layer.kind;
+
+            {
                 let tw = ir.tile_w as f32;
                 let th = ir.tile_h as f32;
 
@@ -111,11 +119,7 @@ impl Map {
                     let mut world = vec2(col as f32 * tw, row as f32 * th);
                     world += layer.offset;
 
-                    index.add_tile(
-                        TileId(*gid),
-                        lz as LayerIdx,
-                        world,
-                    );
+                    index.add_tile(TileId(*gid), lz as LayerIdx, world);
                     inserted_any = true;
                 }
             }
@@ -135,22 +139,27 @@ impl Map {
     }
 
     #[inline]
-    fn params_for_flips(&self, gid: TileId, tile_w: f32, tile_h:f32) -> (f32, bool, bool, Option<Vec2>) {
+    fn params_for_flips(
+        &self,
+        gid: TileId,
+        tile_w: f32,
+        tile_h: f32,
+    ) -> (f32, bool, bool, Option<Vec2>) {
         let h = gid.flip_h(); // horizontal flip
         let v = gid.flip_v(); // vertical flip
         let d = gid.flip_d(); // diagonal flip
 
         let flip_x = h ^ d; // flip horizontally if not diagonal
         let flip_y = v;
-        let pivot = Some(vec2(tile_w / 2.0, tile_h / 2.0)); 
+        let pivot = Some(vec2(tile_w / 2.0, tile_h / 2.0));
 
         let rotation = match (h, v, d) {
             (false, _, _) => 0.0, // no flip
 
             (true, false, false) => std::f32::consts::FRAC_PI_2, // + 90 degrees (with flip)
-            (true, false, true) => std::f32::consts::FRAC_PI_2, // - 90 defrees
-            (true, true, false) => std::f32::consts::FRAC_PI_2, // + 90 degrees
-            (true, true, true) => std::f32::consts::PI, // 180 degrees
+            (true, false, true) => std::f32::consts::FRAC_PI_2,  // - 90 defrees
+            (true, true, false) => std::f32::consts::FRAC_PI_2,  // + 90 degrees
+            (true, true, true) => std::f32::consts::PI,          // 180 degrees
         };
 
         (rotation, flip_x, flip_y, pivot)
@@ -160,23 +169,23 @@ impl Map {
     fn ts_for_gid(&self, gid: TileId) -> Option<(&TilesetInfo, u32)> {
         // Clean the tile ID by removing flip/rotation flags, keep only the actual ID number
         let clean = gid.clean() as usize;
-        
+
         // Check if the cleaned ID is within the bounds of our lookup table
         if clean >= self.gid_lut.len() {
             return None;
         }
-        
+
         // Get the tileset index from the lookup table
         let idx = self.gid_lut[clean];
-        
+
         // If the index is u16::MAX, this means the tile ID doesn't map to any tileset
         if idx == u16::MAX {
             return None;
         }
-        
+
         // Get the tileset info from the tilesets array
         let ts = &self.tilesets[idx as usize];
-        
+
         // Return the tileset info and the local ID within that tileset
         // The local ID is calculated by subtracting the tileset's first GID from the cleaned tile ID
         Some((ts, gid.clean() - ts.first_gid))
@@ -188,9 +197,9 @@ impl Map {
     }
 
     fn draw_chunks(&self, view: LocalView) {
-        for &layerId in &self.layer_order {
-            for LocalChunkView { coord: cc, layers} in &view.chunks {
-                if let Some(vec) = layers.get(&layerId) {
+        for &layer_id in &self.layer_order {
+            for LocalChunkView { coord: cc, layers } in &view.chunks {
+                if let Some(vec) = layers.get(&layer_id) {
                     for rec in vec {
                         let (ts, local) = match self.ts_for_gid(rec.id) {
                             Some(x) => x,
@@ -205,30 +214,31 @@ impl Map {
                         let x = ((cc.x * CHUNK_SIZE) as f32 + rec.rel_pos.x).round();
                         let y = ((cc.y * CHUNK_SIZE) as f32 + rec.rel_pos.y).round();
 
-                        let (rotation, flip_x, flip_y, pivot) = 
+                        let (rotation, flip_x, flip_y, pivot) =
                             self.params_for_flips(rec.id, ts.tile_w as f32, ts.tile_h as f32);
-                    
+
                         draw_texture_ex(
-                            &ts.tex, 
-                            x, y, 
+                            &ts.tex,
+                            x,
+                            y,
                             WHITE,
                             DrawTextureParams {
                                 source: Some(Rect::new(
                                     sx as f32,
-                                    sy as f32, 
+                                    sy as f32,
                                     ts.tile_w as f32,
                                     ts.tile_h as f32,
-                                )), 
+                                )),
                                 rotation,
                                 flip_x,
                                 flip_y,
                                 pivot,
                                 ..Default::default()
-                            }
+                            },
                         );
                     }
                 }
             }
-        } 
+        }
     }
 }
