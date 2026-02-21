@@ -1,0 +1,125 @@
+{
+  "compressionlevel": -1,
+  "height": 8,
+  "infinite": false,
+  "layers": [
+    {
+      "data": [
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+      ],
+      "height": 8,
+      "id": 1,
+      "name": "Ground",
+      "opacity": 1,
+      "type": "tilelayer",
+      "visible": true,
+      "width": 10,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "draworder": "topdown",
+      "id": 2,
+      "name": "Objects",
+      "objects": [
+        {
+          "height": 64,
+          "id": 1,
+          "name": "SpawnArea",
+          "rotation": 0,
+          "type": "Trigger",
+          "visible": true,
+          "width": 96,
+          "x": 64,
+          "y": 64,
+          "properties": [
+            {
+              "name": "spawn",
+              "type": "bool",
+              "value": true
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "name": "WayPoint",
+          "point": true,
+          "rotation": 0,
+          "type": "PointOfInterest",
+          "visible": true,
+          "x": 240,
+          "y": 64
+        },
+        {
+          "id": 3,
+          "name": "DangerZone",
+          "polygon": [
+            { "x": 0, "y": 0 },
+            { "x": 60, "y": 10 },
+            { "x": 30, "y": 70 }
+          ],
+          "rotation": 0,
+          "type": "Polygon",
+          "visible": true,
+          "x": 180,
+          "y": 150
+        },
+        {
+          "id": 4,
+          "name": "Path",
+          "polyline": [
+            { "x": 0, "y": 0 },
+            { "x": 45, "y": 30 },
+            { "x": 90, "y": 10 },
+            { "x": 130, "y": 50 }
+          ],
+          "rotation": 0,
+          "type": "Route",
+          "visible": true,
+          "x": 40,
+          "y": 210
+        },
+        {
+          "gid": 1,
+          "height": 32,
+          "id": 5,
+          "name": "TileMarker",
+          "rotation": 0,
+          "type": "TileObject",
+          "visible": true,
+          "width": 32,
+          "x": 290,
+          "y": 110
+        }
+      ],
+      "opacity": 1,
+      "type": "objectgroup",
+      "visible": true,
+      "x": 0,
+      "y": 0
+    }
+  ],
+  "nextlayerid": 3,
+  "nextobjectid": 6,
+  "orientation": "orthogonal",
+  "renderorder": "right-down",
+  "tiledversion": "1.10.2",
+  "tileheight": 32,
+  "tilesets": [
+    {
+      "firstgid": 1,
+      "source": "tileset.json"
+    }
+  ],
+  "tilewidth": 32,
+  "type": "map",
+  "version": "1.10",
+  "width": 10
+}

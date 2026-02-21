@@ -22,7 +22,7 @@ async fn main() {
     loop {
         clear_background(BLACK);
 
-        map.draw_visible_rect(Vec2::ZERO, screen_size);
+        map.draw(Vec2::ZERO, screen_size);
 
         // Draw the frame rate in the top-left corner
         draw_text(

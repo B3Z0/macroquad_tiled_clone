@@ -34,6 +34,82 @@
          "y":0
         }, 
         {
+         "draworder":"topdown",
+         "id":4,
+         "name":"Object Layer 1",
+         "objects":[
+                {
+                 "height":0,
+                 "id":1,
+                 "name":"Point 1",
+                 "point":true,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":0,
+                 "x":286,
+                 "y":271
+                }, 
+                {
+                 "height":64,
+                 "id":43,
+                 "name":"SpawnArea",
+                 "properties":[
+                        {
+                         "name":"spawn",
+                         "type":"bool",
+                         "value":true
+                        }],
+                 "rotation":0,
+                 "type":"Trigger",
+                 "visible":true,
+                 "width":96,
+                 "x":64,
+                 "y":64
+                }, 
+                {
+                 "gid":15,
+                 "height":47,
+                 "id":12,
+                 "name":"",
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":59,
+                 "x":471,
+                 "y":190
+                }, 
+                {
+                 "gid":15,
+                 "height":89,
+                 "id":13,
+                 "name":"",
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":87,
+                 "x":538,
+                 "y":392
+                }, 
+                {
+                 "gid":15,
+                 "height":16,
+                 "id":14,
+                 "name":"",
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":20,
+                 "x":447,
+                 "y":420
+                }],
+         "opacity":1,
+         "type":"objectgroup",
+         "visible":true,
+         "x":0,
+         "y":0
+        }, 
+        {
          "data":[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -95,11 +171,11 @@
          "x":0,
          "y":0
         }],
- "nextlayerid":4,
- "nextobjectid":1,
+ "nextlayerid":5,
+ "nextobjectid":15,
  "orientation":"orthogonal",
  "renderorder":"right-down",
- "tiledversion":"1.10.2",
+ "tiledversion":"1.11.2",
  "tileheight":32,
  "tilesets":[
         {
@@ -109,6 +185,10 @@
         {
          "firstgid":5,
          "source":"tileset2.json"
+        }, 
+        {
+         "firstgid":15,
+         "source":"coin.json"
         }],
  "tilewidth":32,
  "type":"map",
