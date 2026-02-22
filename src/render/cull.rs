@@ -1,7 +1,4 @@
-use crate::{
-    spatial::{ChunkCoord, LayerBucket, CHUNK_SIZE},
-    GlobalIndex, LayerIdx,
-};
+use crate::spatial::{ChunkCoord, GlobalIndex, LayerBucket, LayerIdx, CHUNK_SIZE};
 use macroquad::prelude::*;
 use std::collections::HashMap;
 

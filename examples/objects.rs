@@ -1,5 +1,5 @@
 use macroquad::prelude::*;
-use macroquad_tiled_clone::map::Map;
+use macroquad_tiled_clone::Map;
 
 fn window_conf() -> Conf {
     Conf {

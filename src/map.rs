@@ -1,10 +1,7 @@
 use crate::ir_map::*;
 use crate::loader::json_loader::*;
 use crate::render::*;
-use crate::{
-    spatial::{rel, world_to_chunk, CHUNK_SIZE},
-    GlobalIndex, LayerIdx, TileId,
-};
+use crate::spatial::{rel, world_to_chunk, GlobalIndex, LayerIdx, TileId, CHUNK_SIZE};
 use anyhow::Context;
 use macroquad::prelude::*;
 use std::collections::HashMap;
@@ -14,6 +11,7 @@ pub type LayerId = u32;
 
 pub struct TilesetInfo {
     pub first_gid: u32,
+    #[allow(dead_code)]
     pub tilecount: u32,
     pub cols: u32,
     pub tex: Texture2D,
@@ -23,13 +21,24 @@ pub struct TilesetInfo {
     pub margin: u32,
 }
 
+/// A Tiled object layer parsed from the map.
+///
+/// Stable API: this struct is exposed for inspection/querying (`Map::object_layers`),
+/// not for direct mutation of rendering internals.
 pub struct ObjectLayer {
+    /// Stable layer id matching Tiled layer order.
     pub id: LayerId,
+    /// Layer name from Tiled.
     pub name: String,
+    /// Visibility flag from Tiled.
     pub visible: bool,
+    /// Opacity from Tiled (0.0..=1.0).
     pub opacity: f32,
+    /// Layer offset in world coordinates.
     pub offset: Vec2,
+    /// Custom layer properties.
     pub properties: Properties,
+    /// Parsed objects in this layer.
     pub objects: Vec<IrObject>,
     bucket_layer: LayerIdx,
     // Separate dedupe buffers let tile-object rendering and debug overlay
@@ -88,26 +97,56 @@ impl Default for MapRenderer {
     }
 }
 
+fn build_draw_order_and_kind(
+    layers: &[IrLayer],
+) -> (Vec<LayerId>, HashMap<LayerId, LayerKindInfo>) {
+    let mut draw_order = Vec::with_capacity(layers.len());
+    let mut layer_kind_by_id = HashMap::with_capacity(layers.len());
+    let mut tile_layer_idx = 0usize;
+    let mut object_layer_idx = 0usize;
+
+    for (lz, layer) in layers.iter().enumerate() {
+        let stable_id = lz as LayerId;
+        draw_order.push(stable_id);
+        match layer.kind {
+            IrLayerKind::Tiles { .. } => {
+                layer_kind_by_id.insert(stable_id, LayerKindInfo::Tiles(tile_layer_idx));
+                tile_layer_idx += 1;
+            }
+            IrLayerKind::Objects { .. } => {
+                layer_kind_by_id.insert(stable_id, LayerKindInfo::Objects(object_layer_idx));
+                object_layer_idx += 1;
+            }
+            IrLayerKind::Unsupported => {
+                layer_kind_by_id.insert(stable_id, LayerKindInfo::Unsupported);
+            }
+        }
+    }
+
+    (draw_order, layer_kind_by_id)
+}
+
 pub struct Map {
-    pub index: GlobalIndex,
-    pub tilesets: Vec<TilesetInfo>,
+    index: GlobalIndex,
+    tilesets: Vec<TilesetInfo>,
     object_layers: Vec<ObjectLayer>,
     renderer: MapRenderer,
     gid_lut: Vec<u16>, //lookup table for tile GIDs to tileset indices
     tile_layers: Vec<TileLayerDrawInfo>,
     draw_order: Vec<LayerId>,
     layer_kind_by_id: HashMap<LayerId, LayerKindInfo>,
-    pub tile_w: u32,
-    pub tile_h: u32,
 }
 
 impl Map {
+    /// Loads a Tiled map JSON file and its external tilesets/textures.
+    ///
+    /// This is the stable entry point for creating a [`Map`].
     pub async fn load(path: &str) -> anyhow::Result<Self> {
         let (ir, base) = decode_map_file_to_ir(path)?;
         Self::from_ir(ir, &base).await
     }
 
-    pub async fn from_ir(ir: IrMap, base_dir: &Path) -> anyhow::Result<Self> {
+    pub(crate) async fn from_ir(ir: IrMap, base_dir: &Path) -> anyhow::Result<Self> {
         let mut tilesets = Vec::new();
 
         let mut max_gid = 0u32;
@@ -139,9 +178,15 @@ impl Map {
                     ..
                 } => {
                     let img_path = base_dir.join(image);
-                    let tex = load_texture(img_path.to_str().unwrap())
+                    let img_path_str = img_path.to_str().with_context(|| {
+                        format!(
+                            "Tileset image path is not valid UTF-8: {}",
+                            img_path.display()
+                        )
+                    })?;
+                    let tex = load_texture(img_path_str)
                         .await
-                        .with_context(|| format!("Loading texture {}", image))?;
+                        .with_context(|| format!("Loading texture {}", img_path.display()))?;
                     tex.set_filter(FilterMode::Nearest);
 
                     tilesets.push(TilesetInfo {
@@ -165,19 +210,15 @@ impl Map {
         let mut index = GlobalIndex::new();
         let mut object_layers = Vec::new();
         let mut tile_layers: Vec<TileLayerDrawInfo> = Vec::new();
-        let mut draw_order: Vec<LayerId> = Vec::new();
-        let mut layer_kind_by_id: HashMap<LayerId, LayerKindInfo> = HashMap::new();
+        let (draw_order, layer_kind_by_id) = build_draw_order_and_kind(&ir.layers);
 
         for (lz, layer) in ir.layers.iter().enumerate() {
-            let stable_id = lz as LayerId;
-            draw_order.push(stable_id);
-
             match &layer.kind {
                 IrLayerKind::Objects { objects } => {
-                    let layer_idx = object_layers.len();
                     let bucket_layer = lz as LayerIdx;
+                    let layer_idx = object_layers.len();
                     object_layers.push(ObjectLayer {
-                        id: stable_id,
+                        id: lz as LayerId,
                         name: layer.name.clone(),
                         visible: layer.visible,
                         opacity: layer.opacity,
@@ -191,9 +232,7 @@ impl Map {
 
                     for (object_idx, obj) in objects.iter().enumerate() {
                         let world = vec2(obj.x, obj.y) + layer.offset;
-                        let (min, max) = Self::object_aabb_world(obj, layer.offset);
-                        let chunk_min = world_to_chunk(min);
-                        let chunk_max = world_to_chunk(max);
+                        let (chunk_min, chunk_max) = Self::object_chunk_span(obj, layer.offset);
 
                         for cy in chunk_min.y..=chunk_max.y {
                             for cx in chunk_min.x..=chunk_max.x {
@@ -209,16 +248,18 @@ impl Map {
                             }
                         }
                     }
-
-                    layer_kind_by_id.insert(stable_id, LayerKindInfo::Objects(layer_idx));
+                    debug_assert!(matches!(
+                        layer_kind_by_id.get(&(lz as LayerId)),
+                        Some(LayerKindInfo::Objects(idx)) if *idx == layer_idx
+                    ));
                 }
                 IrLayerKind::Tiles {
                     width,
                     height: _,
                     data,
                 } => {
-                    let tile_layer_idx = tile_layers.len();
                     let lid = lz as LayerIdx;
+                    let tile_layer_idx = tile_layers.len();
 
                     let tw = ir.tile_w as f32;
                     let th = ir.tile_h as f32;
@@ -238,11 +279,12 @@ impl Map {
                         visible: layer.visible,
                         opacity: layer.opacity.clamp(0.0, 1.0),
                     });
-                    layer_kind_by_id.insert(stable_id, LayerKindInfo::Tiles(tile_layer_idx));
+                    debug_assert!(matches!(
+                        layer_kind_by_id.get(&(lz as LayerId)),
+                        Some(LayerKindInfo::Tiles(idx)) if *idx == tile_layer_idx
+                    ));
                 }
-                IrLayerKind::Unsupported => {
-                    layer_kind_by_id.insert(stable_id, LayerKindInfo::Unsupported);
-                }
+                IrLayerKind::Unsupported => {}
             }
         }
 
@@ -255,8 +297,6 @@ impl Map {
             tile_layers,
             draw_order,
             layer_kind_by_id,
-            tile_w: ir.tile_w,
-            tile_h: ir.tile_h,
         })
     }
 
@@ -300,6 +340,14 @@ impl Map {
                 (vec2(origin.x, origin.y - h), vec2(origin.x + w, origin.y))
             }
         }
+    }
+
+    fn object_chunk_span(
+        obj: &IrObject,
+        layer_offset: Vec2,
+    ) -> (crate::spatial::ChunkCoord, crate::spatial::ChunkCoord) {
+        let (min, max) = Self::object_aabb_world(obj, layer_offset);
+        (world_to_chunk(min), world_to_chunk(max))
     }
 
     pub fn next_frame_stamp(&mut self) -> u32 {
@@ -376,11 +424,18 @@ impl Map {
         Self::ts_for_gid_from(gid, &self.gid_lut, &self.tilesets)
     }
 
+    /// Draws only tile layers inside the visible rectangle.
+    ///
+    /// Stable API for tile-only rendering. Object layers are not drawn here.
     pub fn draw_visible_rect(&self, view_min: Vec2, view_max: Vec2) {
         let view = query_visible_rect(&self.index, view_min, view_max);
         self.draw_chunks(view);
     }
 
+    /// Draws the full map in configured layer order.
+    ///
+    /// Stable API: draws visible tile layers and tile-objects.
+    /// If debug drawing is enabled, object debug overlays are drawn too.
     pub fn draw(&mut self, view_min: Vec2, view_max: Vec2) {
         let coords = self.visible_coords_for_draw(view_min, view_max);
         let stamp = self.next_frame_stamp();
@@ -404,29 +459,49 @@ impl Map {
         }
     }
 
+    /// Enables/disables object debug overlay drawing used by [`Map::draw`].
+    ///
+    /// Stable API.
     pub fn set_debug_draw(&mut self, enabled: bool) {
         self.renderer.debug_draw = enabled;
     }
 
+    /// Sets extra culling padding in world units around the view rectangle.
+    ///
+    /// Stable API. `0.0` means no extra padding.
     pub fn set_cull_padding(&mut self, padding: f32) {
         self.renderer.cull_padding = padding.max(0.0);
     }
 
+    /// Draws debug shapes for visible object layers.
+    ///
+    /// Stable convenience API: acquires an internal frame stamp automatically.
     pub fn draw_objects_debug(&mut self, view_min: Vec2, view_max: Vec2) {
         let stamp = self.next_frame_stamp();
         self.draw_objects_debug_with_stamp(view_min, view_max, stamp);
     }
 
+    /// Advanced API: draws debug shapes for visible object layers using a caller-provided stamp.
+    ///
+    /// Use this when you want frame-coherent manual composition (for example:
+    /// tile pass + debug pass in the same frame using one shared stamp).
     pub fn draw_objects_debug_with_stamp(&mut self, view_min: Vec2, view_max: Vec2, stamp: u32) {
         let coords = self.visible_coords_for_draw(view_min, view_max);
         self.draw_object_layers_debug_from_coords(&coords, stamp);
     }
 
+    /// Draws tile-objects from visible object layers.
+    ///
+    /// Stable convenience API: acquires an internal frame stamp automatically.
     pub fn draw_objects_tiles(&mut self, view_min: Vec2, view_max: Vec2) {
         let stamp = self.next_frame_stamp();
         self.draw_objects_tiles_with_stamp(view_min, view_max, stamp);
     }
 
+    /// Advanced API: draws tile-objects using a caller-provided stamp.
+    ///
+    /// This exists to support explicit control of object deduplication across
+    /// multiple manual object passes in one frame.
     pub fn draw_objects_tiles_with_stamp(&mut self, view_min: Vec2, view_max: Vec2, stamp: u32) {
         let coords = self.visible_coords_for_draw(view_min, view_max);
         self.draw_object_layers_tiles_from_coords(&coords, stamp);
@@ -791,5 +866,80 @@ impl Map {
             vec2(view_min.x - pad, view_min.y - pad),
             vec2(view_max.x + pad, view_max.y + pad),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn object_chunk_span_covers_multi_chunk_rectangles() {
+        let obj = IrObject {
+            id: 1,
+            name: String::new(),
+            class_name: String::new(),
+            x: 250.0,
+            y: 10.0,
+            width: 20.0,
+            height: 20.0,
+            rotation: 0.0,
+            visible: true,
+            shape: IrObjectShape::Rectangle,
+            properties: Properties::default(),
+        };
+
+        let (chunk_min, chunk_max) = Map::object_chunk_span(&obj, Vec2::ZERO);
+        assert_eq!(chunk_min.x, 0);
+        assert_eq!(chunk_max.x, 1);
+        assert_eq!(chunk_min.y, 0);
+        assert_eq!(chunk_max.y, 0);
+    }
+
+    #[test]
+    fn draw_order_matches_tiled_layer_order() {
+        let layers = vec![
+            IrLayer {
+                name: "tiles_a".to_string(),
+                visible: true,
+                opacity: 1.0,
+                offset: Vec2::ZERO,
+                properties: Properties::default(),
+                kind: IrLayerKind::Tiles {
+                    width: 1,
+                    height: 1,
+                    data: vec![0],
+                },
+            },
+            IrLayer {
+                name: "objects_a".to_string(),
+                visible: true,
+                opacity: 1.0,
+                offset: Vec2::ZERO,
+                properties: Properties::default(),
+                kind: IrLayerKind::Objects { objects: vec![] },
+            },
+            IrLayer {
+                name: "tiles_b".to_string(),
+                visible: true,
+                opacity: 1.0,
+                offset: Vec2::ZERO,
+                properties: Properties::default(),
+                kind: IrLayerKind::Tiles {
+                    width: 1,
+                    height: 1,
+                    data: vec![0],
+                },
+            },
+        ];
+
+        let (draw_order, kind_by_id) = build_draw_order_and_kind(&layers);
+        assert_eq!(draw_order, vec![0, 1, 2]);
+        assert!(matches!(kind_by_id.get(&0), Some(LayerKindInfo::Tiles(0))));
+        assert!(matches!(
+            kind_by_id.get(&1),
+            Some(LayerKindInfo::Objects(0))
+        ));
+        assert!(matches!(kind_by_id.get(&2), Some(LayerKindInfo::Tiles(1))));
     }
 }

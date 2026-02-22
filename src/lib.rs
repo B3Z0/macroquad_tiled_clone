@@ -1,10 +1,13 @@
-pub mod ir_map;
-pub mod map;
-pub mod render;
-pub mod spatial;
-pub mod loader {
+#[allow(dead_code)]
+mod ir_map;
+mod loader {
     pub mod json_loader;
 }
+mod map;
+#[allow(dead_code)]
+mod render;
+#[allow(dead_code)]
+mod spatial;
 
-pub use map::Map;
-pub use spatial::{GlobalIndex, LayerIdx, TileHandle, TileId};
+pub use ir_map::{IrObject, IrObjectShape, Properties, PropertyValue};
+pub use map::{LayerId, Map, ObjectLayer};
