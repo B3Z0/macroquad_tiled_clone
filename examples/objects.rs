@@ -27,10 +27,11 @@ async fn main() {
 
     loop {
         clear_background(BLACK);
+        let stamp = map.next_frame_stamp();
 
         map.draw_visible_rect(Vec2::ZERO, screen_size);
-        map.draw_objects_tiles(Vec2::ZERO, screen_size);
-        map.draw_objects_debug(Vec2::ZERO, screen_size);
+        map.draw_objects_tiles(Vec2::ZERO, screen_size, stamp);
+        map.draw_objects_debug(Vec2::ZERO, screen_size, stamp);
 
         draw_text("objects example", 20.0, 30.0, 32.0, WHITE);
         next_frame().await;

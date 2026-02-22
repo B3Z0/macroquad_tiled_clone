@@ -52,13 +52,47 @@ enum LayerKindInfo {
     Unsupported,
 }
 
+struct MapRenderer {
+    debug_draw: bool,
+    cull_padding: f32,
+    frame_stamp: u32,
+}
+
+impl MapRenderer {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn next_frame_stamp(&mut self, object_layers: &mut [ObjectLayer]) -> u32 {
+        if self.frame_stamp == u32::MAX {
+            for layer in object_layers {
+                layer.seen_stamp_tiles.fill(0);
+                layer.seen_stamp_debug.fill(0);
+            }
+            self.frame_stamp = 1;
+            return 1;
+        }
+
+        self.frame_stamp += 1;
+        self.frame_stamp
+    }
+}
+
+impl Default for MapRenderer {
+    fn default() -> Self {
+        Self {
+            debug_draw: false,
+            cull_padding: CHUNK_SIZE as f32,
+            frame_stamp: 0,
+        }
+    }
+}
+
 pub struct Map {
     pub index: GlobalIndex,
     pub tilesets: Vec<TilesetInfo>,
     object_layers: Vec<ObjectLayer>,
-    debug_draw: bool,
-    frame_stamp: u32,
-    cull_padding: f32,
+    renderer: MapRenderer,
     gid_lut: Vec<u16>, //lookup table for tile GIDs to tileset indices
     tile_layers: Vec<TileLayerDrawInfo>,
     draw_order: Vec<LayerId>,
@@ -168,7 +202,7 @@ impl Map {
                                     bucket_layer,
                                     cc,
                                     crate::spatial::ObjectRec {
-                                        id: object_idx as u32,
+                                        handle: crate::spatial::ObjectHandle(object_idx as u32),
                                         rel_pos: rel(world),
                                     },
                                 );
@@ -216,9 +250,7 @@ impl Map {
             index,
             tilesets,
             object_layers,
-            debug_draw: false,
-            frame_stamp: 0,
-            cull_padding: CHUNK_SIZE as f32,
+            renderer: MapRenderer::new(),
             gid_lut,
             tile_layers,
             draw_order,
@@ -270,17 +302,8 @@ impl Map {
         }
     }
 
-    fn next_frame_stamp(&mut self) -> u32 {
-        if self.frame_stamp == u32::MAX {
-            for layer in &mut self.object_layers {
-                layer.seen_stamp_tiles.fill(0);
-                layer.seen_stamp_debug.fill(0);
-            }
-            self.frame_stamp = 1;
-            return 1;
-        }
-        self.frame_stamp += 1;
-        self.frame_stamp
+    pub fn next_frame_stamp(&mut self) -> u32 {
+        self.renderer.next_frame_stamp(&mut self.object_layers)
     }
 
     pub fn object_layers(&self) -> &[ObjectLayer] {
@@ -372,7 +395,7 @@ impl Map {
                 }
                 LayerKindInfo::Objects(object_layer_idx) => {
                     self.draw_object_tiles_layer_from_coords(&coords, object_layer_idx, stamp);
-                    if self.debug_draw {
+                    if self.renderer.debug_draw {
                         self.draw_object_debug_layer_from_coords(&coords, object_layer_idx, stamp);
                     }
                 }
@@ -382,21 +405,21 @@ impl Map {
     }
 
     pub fn set_debug_draw(&mut self, enabled: bool) {
-        self.debug_draw = enabled;
+        self.renderer.debug_draw = enabled;
     }
 
     pub fn set_cull_padding(&mut self, padding: f32) {
-        self.cull_padding = padding.max(0.0);
+        self.renderer.cull_padding = padding.max(0.0);
     }
 
-    pub fn draw_objects_debug(&mut self, view_min: Vec2, view_max: Vec2) {
+    pub fn draw_objects_debug(&mut self, view_min: Vec2, view_max: Vec2, stamp: u32) {
         let coords = self.visible_coords_for_draw(view_min, view_max);
-        self.draw_chunk_objects_debug_coords(&coords);
+        self.draw_object_layers_debug_from_coords(&coords, stamp);
     }
 
-    pub fn draw_objects_tiles(&mut self, view_min: Vec2, view_max: Vec2) {
+    pub fn draw_objects_tiles(&mut self, view_min: Vec2, view_max: Vec2, stamp: u32) {
         let coords = self.visible_coords_for_draw(view_min, view_max);
-        self.draw_chunk_objects_tiles_coords(&coords);
+        self.draw_object_layers_tiles_from_coords(&coords, stamp);
     }
 
     fn draw_chunks(&self, view: LocalView) {
@@ -470,13 +493,7 @@ impl Map {
         }
         let tint = Color::new(1.0, 1.0, 1.0, layer.opacity);
 
-        for cc in coords {
-            let Some(global_chunk) = self.index.buckets.get(cc) else {
-                continue;
-            };
-            let Some(bucket) = global_chunk.layers.get(&layer.layer_id) else {
-                continue;
-            };
+        Self::for_each_visible_layer_bucket(&self.index, coords, layer.layer_id, |cc, bucket| {
             for rec in &bucket.tiles {
                 let (ts, local) = match self.ts_for_gid(rec.id) {
                     Some(x) => x,
@@ -514,18 +531,24 @@ impl Map {
                     },
                 );
             }
-        }
+        });
     }
 
-    fn draw_chunk_objects_debug_coords(&mut self, coords: &[crate::spatial::ChunkCoord]) {
-        let stamp = self.next_frame_stamp();
+    fn draw_object_layers_debug_from_coords(
+        &mut self,
+        coords: &[crate::spatial::ChunkCoord],
+        stamp: u32,
+    ) {
         for layer_idx in 0..self.object_layers.len() {
             self.draw_object_debug_layer_from_coords(coords, layer_idx, stamp);
         }
     }
 
-    fn draw_chunk_objects_tiles_coords(&mut self, coords: &[crate::spatial::ChunkCoord]) {
-        let stamp = self.next_frame_stamp();
+    fn draw_object_layers_tiles_from_coords(
+        &mut self,
+        coords: &[crate::spatial::ChunkCoord],
+        stamp: u32,
+    ) {
         for layer_idx in 0..self.object_layers.len() {
             self.draw_object_tiles_layer_from_coords(coords, layer_idx, stamp);
         }
@@ -549,81 +572,84 @@ impl Map {
         let polygon_color = Color::new(SKYBLUE.r, SKYBLUE.g, SKYBLUE.b, alpha);
         let polyline_color = Color::new(PINK.r, PINK.g, PINK.b, alpha);
         let tile_color = Color::new(MAGENTA.r, MAGENTA.g, MAGENTA.b, alpha);
+        let bucket_layer = layer.bucket_layer;
 
-        for cc in coords {
-            let Some(global_chunk) = self.index.buckets.get(cc) else {
-                continue;
-            };
-            let Some(layer_bucket) = global_chunk.layers.get(&layer.bucket_layer) else {
-                continue;
-            };
-            let records = &layer_bucket.objects;
-
-            for rec in records {
-                let object_idx = rec.id as usize;
-                if object_idx >= layer.seen_stamp_debug.len()
-                    || layer.seen_stamp_debug[object_idx] == stamp
-                {
-                    continue;
-                }
-                layer.seen_stamp_debug[object_idx] = stamp;
-
-                let Some(obj) = layer.objects.get(object_idx) else {
-                    continue;
-                };
-                if !obj.visible {
-                    continue;
-                }
-
-                let origin = vec2(
-                    (cc.x * CHUNK_SIZE) as f32 + rec.rel_pos.x,
-                    (cc.y * CHUNK_SIZE) as f32 + rec.rel_pos.y,
-                );
-
-                match &obj.shape {
-                    IrObjectShape::Rectangle => {
-                        draw_rectangle_lines(
-                            origin.x,
-                            origin.y,
-                            obj.width.max(2.0),
-                            obj.height.max(2.0),
-                            2.0,
-                            rect_color,
-                        );
+        Self::for_each_visible_layer_bucket(
+            &self.index,
+            coords,
+            bucket_layer,
+            |cc, layer_bucket| {
+                let records = &layer_bucket.objects;
+                for rec in records {
+                    let object_idx = rec.handle.0 as usize;
+                    if object_idx >= layer.objects.len() {
+                        debug_assert!(false, "ObjectHandle out of bounds for debug draw");
+                        continue;
                     }
-                    IrObjectShape::Point => {
-                        draw_circle(origin.x, origin.y, 5.0, point_color);
+                    if object_idx >= layer.seen_stamp_debug.len()
+                        || layer.seen_stamp_debug[object_idx] == stamp
+                    {
+                        continue;
                     }
-                    IrObjectShape::Polygon(points) => {
-                        if points.len() < 2 {
-                            continue;
+                    layer.seen_stamp_debug[object_idx] = stamp;
+
+                    let Some(obj) = layer.objects.get(object_idx) else {
+                        continue;
+                    };
+                    if !obj.visible {
+                        continue;
+                    }
+
+                    let origin = vec2(
+                        (cc.x * CHUNK_SIZE) as f32 + rec.rel_pos.x,
+                        (cc.y * CHUNK_SIZE) as f32 + rec.rel_pos.y,
+                    );
+
+                    match &obj.shape {
+                        IrObjectShape::Rectangle => {
+                            draw_rectangle_lines(
+                                origin.x,
+                                origin.y,
+                                obj.width.max(2.0),
+                                obj.height.max(2.0),
+                                2.0,
+                                rect_color,
+                            );
                         }
-                        for i in 0..points.len() {
-                            let a = origin + points[i];
-                            let b = origin + points[(i + 1) % points.len()];
-                            draw_line(a.x, a.y, b.x, b.y, 2.0, polygon_color);
+                        IrObjectShape::Point => {
+                            draw_circle(origin.x, origin.y, 5.0, point_color);
                         }
-                    }
-                    IrObjectShape::Polyline(points) => {
-                        for seg in points.windows(2) {
-                            let a = origin + seg[0];
-                            let b = origin + seg[1];
-                            draw_line(a.x, a.y, b.x, b.y, 2.0, polyline_color);
+                        IrObjectShape::Polygon(points) => {
+                            if points.len() < 2 {
+                                continue;
+                            }
+                            for i in 0..points.len() {
+                                let a = origin + points[i];
+                                let b = origin + points[(i + 1) % points.len()];
+                                draw_line(a.x, a.y, b.x, b.y, 2.0, polygon_color);
+                            }
                         }
-                    }
-                    IrObjectShape::Tile { .. } => {
-                        draw_rectangle_lines(
-                            origin.x,
-                            origin.y - obj.height,
-                            obj.width.max(16.0),
-                            obj.height.max(16.0),
-                            2.0,
-                            tile_color,
-                        );
+                        IrObjectShape::Polyline(points) => {
+                            for seg in points.windows(2) {
+                                let a = origin + seg[0];
+                                let b = origin + seg[1];
+                                draw_line(a.x, a.y, b.x, b.y, 2.0, polyline_color);
+                            }
+                        }
+                        IrObjectShape::Tile { .. } => {
+                            draw_rectangle_lines(
+                                origin.x,
+                                origin.y - obj.height,
+                                obj.width.max(16.0),
+                                obj.height.max(16.0),
+                                2.0,
+                                tile_color,
+                            );
+                        }
                     }
                 }
-            }
-        }
+            },
+        );
     }
 
     fn draw_object_tiles_layer_from_coords(
@@ -641,86 +667,107 @@ impl Map {
             return;
         }
         let tint = Color::new(1.0, 1.0, 1.0, layer.opacity.clamp(0.0, 1.0));
+        let bucket_layer = layer.bucket_layer;
 
+        Self::for_each_visible_layer_bucket(
+            &self.index,
+            coords,
+            bucket_layer,
+            |cc, layer_bucket| {
+                let records = &layer_bucket.objects;
+                for rec in records {
+                    let object_idx = rec.handle.0 as usize;
+                    if object_idx >= layer.objects.len() {
+                        debug_assert!(false, "ObjectHandle out of bounds for tile draw");
+                        continue;
+                    }
+                    if object_idx >= layer.seen_stamp_tiles.len()
+                        || layer.seen_stamp_tiles[object_idx] == stamp
+                    {
+                        continue;
+                    }
+                    layer.seen_stamp_tiles[object_idx] = stamp;
+
+                    let Some(obj) = layer.objects.get(object_idx) else {
+                        continue;
+                    };
+                    if !obj.visible {
+                        continue;
+                    }
+
+                    let IrObjectShape::Tile { gid } = obj.shape else {
+                        continue;
+                    };
+
+                    let origin = vec2(
+                        (cc.x * CHUNK_SIZE) as f32 + rec.rel_pos.x,
+                        (cc.y * CHUNK_SIZE) as f32 + rec.rel_pos.y,
+                    );
+
+                    let gid = TileId(gid);
+                    let Some((ts, local)) = Self::ts_for_gid_from(gid, gid_lut, tilesets) else {
+                        continue;
+                    };
+
+                    let col = local % ts.cols;
+                    let row = local / ts.cols;
+                    let sx = ts.margin + col * (ts.tile_w + ts.spacing);
+                    let sy = ts.margin + row * (ts.tile_h + ts.spacing);
+
+                    let w = if obj.width > 0.0 {
+                        obj.width
+                    } else {
+                        ts.tile_w as f32
+                    };
+                    let h = if obj.height > 0.0 {
+                        obj.height
+                    } else {
+                        ts.tile_h as f32
+                    };
+
+                    let (flag_rotation, flip_x, flip_y, _) = Self::params_for_flips_gid(gid, w, h);
+                    let rotation = obj.rotation.to_radians() + flag_rotation;
+
+                    draw_texture_ex(
+                        &ts.tex,
+                        origin.x,
+                        origin.y - h,
+                        tint,
+                        DrawTextureParams {
+                            source: Some(Rect::new(
+                                sx as f32,
+                                sy as f32,
+                                ts.tile_w as f32,
+                                ts.tile_h as f32,
+                            )),
+                            dest_size: Some(vec2(w, h)),
+                            rotation,
+                            flip_x,
+                            flip_y,
+                            pivot: Some(vec2(0.0, h)),
+                        },
+                    );
+                }
+            },
+        );
+    }
+
+    fn for_each_visible_layer_bucket<F>(
+        index: &GlobalIndex,
+        coords: &[crate::spatial::ChunkCoord],
+        bucket_layer: LayerIdx,
+        mut f: F,
+    ) where
+        F: FnMut(crate::spatial::ChunkCoord, &crate::spatial::LayerBucket),
+    {
         for cc in coords {
-            let Some(global_chunk) = self.index.buckets.get(cc) else {
+            let Some(chunk) = index.buckets.get(cc) else {
                 continue;
             };
-            let Some(layer_bucket) = global_chunk.layers.get(&layer.bucket_layer) else {
+            let Some(bucket) = chunk.layers.get(&bucket_layer) else {
                 continue;
             };
-            let records = &layer_bucket.objects;
-
-            for rec in records {
-                let object_idx = rec.id as usize;
-                if object_idx >= layer.seen_stamp_tiles.len()
-                    || layer.seen_stamp_tiles[object_idx] == stamp
-                {
-                    continue;
-                }
-                layer.seen_stamp_tiles[object_idx] = stamp;
-
-                let Some(obj) = layer.objects.get(object_idx) else {
-                    continue;
-                };
-                if !obj.visible {
-                    continue;
-                }
-
-                let IrObjectShape::Tile { gid } = obj.shape else {
-                    continue;
-                };
-
-                let origin = vec2(
-                    (cc.x * CHUNK_SIZE) as f32 + rec.rel_pos.x,
-                    (cc.y * CHUNK_SIZE) as f32 + rec.rel_pos.y,
-                );
-
-                let gid = TileId(gid);
-                let Some((ts, local)) = Self::ts_for_gid_from(gid, gid_lut, tilesets) else {
-                    continue;
-                };
-
-                let col = local % ts.cols;
-                let row = local / ts.cols;
-                let sx = ts.margin + col * (ts.tile_w + ts.spacing);
-                let sy = ts.margin + row * (ts.tile_h + ts.spacing);
-
-                let w = if obj.width > 0.0 {
-                    obj.width
-                } else {
-                    ts.tile_w as f32
-                };
-                let h = if obj.height > 0.0 {
-                    obj.height
-                } else {
-                    ts.tile_h as f32
-                };
-
-                let (flag_rotation, flip_x, flip_y, _) = Self::params_for_flips_gid(gid, w, h);
-                let rotation = obj.rotation.to_radians() + flag_rotation;
-
-                draw_texture_ex(
-                    &ts.tex,
-                    origin.x,
-                    origin.y - h,
-                    tint,
-                    DrawTextureParams {
-                        source: Some(Rect::new(
-                            sx as f32,
-                            sy as f32,
-                            ts.tile_w as f32,
-                            ts.tile_h as f32,
-                        )),
-                        dest_size: Some(vec2(w, h)),
-                        rotation,
-                        flip_x,
-                        flip_y,
-                        pivot: Some(vec2(0.0, h)),
-                        ..Default::default()
-                    },
-                );
-            }
+            f(*cc, bucket);
         }
     }
 
@@ -729,7 +776,7 @@ impl Map {
         view_min: Vec2,
         view_max: Vec2,
     ) -> Vec<crate::spatial::ChunkCoord> {
-        let pad = self.cull_padding;
+        let pad = self.renderer.cull_padding;
         visible_chunk_coords_rect(
             vec2(view_min.x - pad, view_min.y - pad),
             vec2(view_max.x + pad, view_max.y + pad),
