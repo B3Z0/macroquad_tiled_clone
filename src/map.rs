@@ -412,12 +412,22 @@ impl Map {
         self.renderer.cull_padding = padding.max(0.0);
     }
 
-    pub fn draw_objects_debug(&mut self, view_min: Vec2, view_max: Vec2, stamp: u32) {
+    pub fn draw_objects_debug(&mut self, view_min: Vec2, view_max: Vec2) {
+        let stamp = self.next_frame_stamp();
+        self.draw_objects_debug_with_stamp(view_min, view_max, stamp);
+    }
+
+    pub fn draw_objects_debug_with_stamp(&mut self, view_min: Vec2, view_max: Vec2, stamp: u32) {
         let coords = self.visible_coords_for_draw(view_min, view_max);
         self.draw_object_layers_debug_from_coords(&coords, stamp);
     }
 
-    pub fn draw_objects_tiles(&mut self, view_min: Vec2, view_max: Vec2, stamp: u32) {
+    pub fn draw_objects_tiles(&mut self, view_min: Vec2, view_max: Vec2) {
+        let stamp = self.next_frame_stamp();
+        self.draw_objects_tiles_with_stamp(view_min, view_max, stamp);
+    }
+
+    pub fn draw_objects_tiles_with_stamp(&mut self, view_min: Vec2, view_max: Vec2, stamp: u32) {
         let coords = self.visible_coords_for_draw(view_min, view_max);
         self.draw_object_layers_tiles_from_coords(&coords, stamp);
     }

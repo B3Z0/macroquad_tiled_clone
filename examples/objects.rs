@@ -30,8 +30,8 @@ async fn main() {
         let stamp = map.next_frame_stamp();
 
         map.draw_visible_rect(Vec2::ZERO, screen_size);
-        map.draw_objects_tiles(Vec2::ZERO, screen_size, stamp);
-        map.draw_objects_debug(Vec2::ZERO, screen_size, stamp);
+        map.draw_objects_tiles_with_stamp(Vec2::ZERO, screen_size, stamp);
+        map.draw_objects_debug_with_stamp(Vec2::ZERO, screen_size, stamp);
 
         draw_text("objects example", 20.0, 30.0, 32.0, WHITE);
         next_frame().await;

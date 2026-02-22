@@ -1,2559 +1,2608 @@
 diff --git a/examples/objects.rs b/examples/objects.rs
-index 79e658f..f286bc0 100644
+index f286bc0..1424354 100644
 --- a/examples/objects.rs
 +++ b/examples/objects.rs
-@@ -27,10 +27,11 @@ async fn main() {
- 
-     loop {
-         clear_background(BLACK);
-+        let stamp = map.next_frame_stamp();
+@@ -30,8 +30,8 @@ async fn main() {
+         let stamp = map.next_frame_stamp();
  
          map.draw_visible_rect(Vec2::ZERO, screen_size);
--        map.draw_objects_tiles(Vec2::ZERO, screen_size);
--        map.draw_objects_debug(Vec2::ZERO, screen_size);
-+        map.draw_objects_tiles(Vec2::ZERO, screen_size, stamp);
-+        map.draw_objects_debug(Vec2::ZERO, screen_size, stamp);
+-        map.draw_objects_tiles(Vec2::ZERO, screen_size, stamp);
+-        map.draw_objects_debug(Vec2::ZERO, screen_size, stamp);
++        map.draw_objects_tiles_with_stamp(Vec2::ZERO, screen_size, stamp);
++        map.draw_objects_debug_with_stamp(Vec2::ZERO, screen_size, stamp);
  
          draw_text("objects example", 20.0, 30.0, 32.0, WHITE);
          next_frame().await;
 diff --git a/src/map.rs b/src/map.rs
-index aac5601..5fc5309 100644
+index 0ae2584..01dc296 100644
 --- a/src/map.rs
 +++ b/src/map.rs
-@@ -52,13 +52,47 @@ enum LayerKindInfo {
-     Unsupported,
- }
+@@ -412,12 +412,22 @@ impl Map {
+         self.renderer.cull_padding = padding.max(0.0);
+     }
  
-+struct MapRenderer {
-+    debug_draw: bool,
-+    cull_padding: f32,
-+    frame_stamp: u32,
-+}
-+
-+impl MapRenderer {
-+    fn new() -> Self {
-+        Self::default()
+-    pub fn draw_objects_debug(&mut self, view_min: Vec2, view_max: Vec2, stamp: u32) {
++    pub fn draw_objects_debug(&mut self, view_min: Vec2, view_max: Vec2) {
++        let stamp = self.next_frame_stamp();
++        self.draw_objects_debug_with_stamp(view_min, view_max, stamp);
 +    }
 +
-+    fn next_frame_stamp(&mut self, object_layers: &mut [ObjectLayer]) -> u32 {
-+        if self.frame_stamp == u32::MAX {
-+            for layer in object_layers {
-+                layer.seen_stamp_tiles.fill(0);
-+                layer.seen_stamp_debug.fill(0);
-+            }
-+            self.frame_stamp = 1;
-+            return 1;
-+        }
-+
-+        self.frame_stamp += 1;
-+        self.frame_stamp
-+    }
-+}
-+
-+impl Default for MapRenderer {
-+    fn default() -> Self {
-+        Self {
-+            debug_draw: false,
-+            cull_padding: CHUNK_SIZE as f32,
-+            frame_stamp: 0,
-+        }
-+    }
-+}
-+
- pub struct Map {
-     pub index: GlobalIndex,
-     pub tilesets: Vec<TilesetInfo>,
-     object_layers: Vec<ObjectLayer>,
--    debug_draw: bool,
--    frame_stamp: u32,
--    cull_padding: f32,
-+    renderer: MapRenderer,
-     gid_lut: Vec<u16>, //lookup table for tile GIDs to tileset indices
-     tile_layers: Vec<TileLayerDrawInfo>,
-     draw_order: Vec<LayerId>,
-@@ -168,7 +202,7 @@ impl Map {
-                                     bucket_layer,
-                                     cc,
-                                     crate::spatial::ObjectRec {
--                                        id: object_idx as u32,
-+                                        handle: crate::spatial::ObjectHandle(object_idx as u32),
-                                         rel_pos: rel(world),
-                                     },
-                                 );
-@@ -216,9 +250,7 @@ impl Map {
-             index,
-             tilesets,
-             object_layers,
--            debug_draw: false,
--            frame_stamp: 0,
--            cull_padding: CHUNK_SIZE as f32,
-+            renderer: MapRenderer::new(),
-             gid_lut,
-             tile_layers,
-             draw_order,
-@@ -270,17 +302,8 @@ impl Map {
-         }
-     }
- 
--    fn next_frame_stamp(&mut self) -> u32 {
--        if self.frame_stamp == u32::MAX {
--            for layer in &mut self.object_layers {
--                layer.seen_stamp_tiles.fill(0);
--                layer.seen_stamp_debug.fill(0);
--            }
--            self.frame_stamp = 1;
--            return 1;
--        }
--        self.frame_stamp += 1;
--        self.frame_stamp
-+    pub fn next_frame_stamp(&mut self) -> u32 {
-+        self.renderer.next_frame_stamp(&mut self.object_layers)
-     }
- 
-     pub fn object_layers(&self) -> &[ObjectLayer] {
-@@ -372,7 +395,7 @@ impl Map {
-                 }
-                 LayerKindInfo::Objects(object_layer_idx) => {
-                     self.draw_object_tiles_layer_from_coords(&coords, object_layer_idx, stamp);
--                    if self.debug_draw {
-+                    if self.renderer.debug_draw {
-                         self.draw_object_debug_layer_from_coords(&coords, object_layer_idx, stamp);
-                     }
-                 }
-@@ -382,21 +405,21 @@ impl Map {
-     }
- 
-     pub fn set_debug_draw(&mut self, enabled: bool) {
--        self.debug_draw = enabled;
-+        self.renderer.debug_draw = enabled;
-     }
- 
-     pub fn set_cull_padding(&mut self, padding: f32) {
--        self.cull_padding = padding.max(0.0);
-+        self.renderer.cull_padding = padding.max(0.0);
-     }
- 
--    pub fn draw_objects_debug(&mut self, view_min: Vec2, view_max: Vec2) {
-+    pub fn draw_objects_debug(&mut self, view_min: Vec2, view_max: Vec2, stamp: u32) {
++    pub fn draw_objects_debug_with_stamp(&mut self, view_min: Vec2, view_max: Vec2, stamp: u32) {
          let coords = self.visible_coords_for_draw(view_min, view_max);
--        self.draw_chunk_objects_debug_coords(&coords);
-+        self.draw_object_layers_debug_from_coords(&coords, stamp);
+         self.draw_object_layers_debug_from_coords(&coords, stamp);
      }
  
--    pub fn draw_objects_tiles(&mut self, view_min: Vec2, view_max: Vec2) {
-+    pub fn draw_objects_tiles(&mut self, view_min: Vec2, view_max: Vec2, stamp: u32) {
+-    pub fn draw_objects_tiles(&mut self, view_min: Vec2, view_max: Vec2, stamp: u32) {
++    pub fn draw_objects_tiles(&mut self, view_min: Vec2, view_max: Vec2) {
++        let stamp = self.next_frame_stamp();
++        self.draw_objects_tiles_with_stamp(view_min, view_max, stamp);
++    }
++
++    pub fn draw_objects_tiles_with_stamp(&mut self, view_min: Vec2, view_max: Vec2, stamp: u32) {
          let coords = self.visible_coords_for_draw(view_min, view_max);
--        self.draw_chunk_objects_tiles_coords(&coords);
-+        self.draw_object_layers_tiles_from_coords(&coords, stamp);
+         self.draw_object_layers_tiles_from_coords(&coords, stamp);
      }
- 
-     fn draw_chunks(&self, view: LocalView) {
-@@ -470,13 +493,7 @@ impl Map {
-         }
-         let tint = Color::new(1.0, 1.0, 1.0, layer.opacity);
- 
--        for cc in coords {
--            let Some(global_chunk) = self.index.buckets.get(cc) else {
--                continue;
--            };
--            let Some(bucket) = global_chunk.layers.get(&layer.layer_id) else {
--                continue;
--            };
-+        Self::for_each_visible_layer_bucket(&self.index, coords, layer.layer_id, |cc, bucket| {
-             for rec in &bucket.tiles {
-                 let (ts, local) = match self.ts_for_gid(rec.id) {
-                     Some(x) => x,
-@@ -514,18 +531,24 @@ impl Map {
-                     },
-                 );
-             }
--        }
-+        });
-     }
- 
--    fn draw_chunk_objects_debug_coords(&mut self, coords: &[crate::spatial::ChunkCoord]) {
--        let stamp = self.next_frame_stamp();
-+    fn draw_object_layers_debug_from_coords(
-+        &mut self,
-+        coords: &[crate::spatial::ChunkCoord],
-+        stamp: u32,
-+    ) {
-         for layer_idx in 0..self.object_layers.len() {
-             self.draw_object_debug_layer_from_coords(coords, layer_idx, stamp);
-         }
-     }
- 
--    fn draw_chunk_objects_tiles_coords(&mut self, coords: &[crate::spatial::ChunkCoord]) {
--        let stamp = self.next_frame_stamp();
-+    fn draw_object_layers_tiles_from_coords(
-+        &mut self,
-+        coords: &[crate::spatial::ChunkCoord],
-+        stamp: u32,
-+    ) {
-         for layer_idx in 0..self.object_layers.len() {
-             self.draw_object_tiles_layer_from_coords(coords, layer_idx, stamp);
-         }
-@@ -549,18 +572,16 @@ impl Map {
-         let polygon_color = Color::new(SKYBLUE.r, SKYBLUE.g, SKYBLUE.b, alpha);
-         let polyline_color = Color::new(PINK.r, PINK.g, PINK.b, alpha);
-         let tile_color = Color::new(MAGENTA.r, MAGENTA.g, MAGENTA.b, alpha);
-+        let bucket_layer = layer.bucket_layer;
- 
--        for cc in coords {
--            let Some(global_chunk) = self.index.buckets.get(cc) else {
--                continue;
--            };
--            let Some(layer_bucket) = global_chunk.layers.get(&layer.bucket_layer) else {
--                continue;
--            };
-+        Self::for_each_visible_layer_bucket(&self.index, coords, bucket_layer, |cc, layer_bucket| {
-             let records = &layer_bucket.objects;
--
-             for rec in records {
--                let object_idx = rec.id as usize;
-+                let object_idx = rec.handle.0 as usize;
-+                if object_idx >= layer.objects.len() {
-+                    debug_assert!(false, "ObjectHandle out of bounds for debug draw");
-+                    continue;
-+                }
-                 if object_idx >= layer.seen_stamp_debug.len()
-                     || layer.seen_stamp_debug[object_idx] == stamp
-                 {
-@@ -623,7 +644,7 @@ impl Map {
-                     }
-                 }
-             }
--        }
-+        });
-     }
- 
-     fn draw_object_tiles_layer_from_coords(
-@@ -641,18 +662,16 @@ impl Map {
-             return;
-         }
-         let tint = Color::new(1.0, 1.0, 1.0, layer.opacity.clamp(0.0, 1.0));
-+        let bucket_layer = layer.bucket_layer;
- 
--        for cc in coords {
--            let Some(global_chunk) = self.index.buckets.get(cc) else {
--                continue;
--            };
--            let Some(layer_bucket) = global_chunk.layers.get(&layer.bucket_layer) else {
--                continue;
--            };
-+        Self::for_each_visible_layer_bucket(&self.index, coords, bucket_layer, |cc, layer_bucket| {
-             let records = &layer_bucket.objects;
--
-             for rec in records {
--                let object_idx = rec.id as usize;
-+                let object_idx = rec.handle.0 as usize;
-+                if object_idx >= layer.objects.len() {
-+                    debug_assert!(false, "ObjectHandle out of bounds for tile draw");
-+                    continue;
-+                }
-                 if object_idx >= layer.seen_stamp_tiles.len()
-                     || layer.seen_stamp_tiles[object_idx] == stamp
-                 {
-@@ -717,10 +736,28 @@ impl Map {
-                         flip_x,
-                         flip_y,
-                         pivot: Some(vec2(0.0, h)),
--                        ..Default::default()
-                     },
-                 );
-             }
-+        });
-+    }
-+
-+    fn for_each_visible_layer_bucket<F>(
-+        index: &GlobalIndex,
-+        coords: &[crate::spatial::ChunkCoord],
-+        bucket_layer: LayerIdx,
-+        mut f: F,
-+    ) where
-+        F: FnMut(crate::spatial::ChunkCoord, &crate::spatial::LayerBucket),
-+    {
-+        for cc in coords {
-+            let Some(chunk) = index.buckets.get(cc) else {
-+                continue;
-+            };
-+            let Some(bucket) = chunk.layers.get(&bucket_layer) else {
-+                continue;
-+            };
-+            f(*cc, bucket);
-         }
-     }
- 
-@@ -729,7 +766,7 @@ impl Map {
-         view_min: Vec2,
-         view_max: Vec2,
-     ) -> Vec<crate::spatial::ChunkCoord> {
--        let pad = self.cull_padding;
-+        let pad = self.renderer.cull_padding;
-         visible_chunk_coords_rect(
-             vec2(view_min.x - pad, view_min.y - pad),
-             vec2(view_max.x + pad, view_max.y + pad),
-diff --git a/src/spatial/index.rs b/src/spatial/index.rs
-index 94179b7..7eebf37 100644
---- a/src/spatial/index.rs
-+++ b/src/spatial/index.rs
-@@ -70,10 +70,13 @@ pub struct TileRec {
- 
- #[derive(Debug, Clone)]
- pub struct ObjectRec {
--    pub id: u32,
-+    pub handle: ObjectHandle,
-     pub rel_pos: Vec2,
- }
- 
-+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-+pub struct ObjectHandle(pub u32);
-+
- #[derive(Debug, Clone, Default)]
- pub struct LayerBucket {
-     pub tiles: Vec<TileRec>,
-@@ -92,6 +95,12 @@ impl GlobalChunk {
-     }
- }
- 
-+impl Default for GlobalChunk {
-+    fn default() -> Self {
-+        Self::new()
-+    }
-+}
-+
- pub struct TileLoc {
-     pub chunk: ChunkCoord,
-     pub layer: LayerIdx,
-@@ -121,11 +130,17 @@ impl GlobalIndex {
-     }
- }
- 
-+impl Default for GlobalIndex {
-+    fn default() -> Self {
-+        Self::new()
-+    }
-+}
-+
- impl GlobalIndex {
-     pub fn add_tile(&mut self, id: TileId, layer: LayerIdx, world: Vec2) -> TileHandle {
-         let cc = world_to_chunk(world);
-         let handle = self.alloc_handle();
--        let bucket = self.buckets.entry(cc).or_insert_with(GlobalChunk::new);
-+        let bucket = self.buckets.entry(cc).or_default();
-         let vec = &mut bucket.layers.entry(layer).or_default().tiles;
- 
-         let idx = vec.len();
-@@ -143,7 +158,7 @@ impl GlobalIndex {
-     }
- 
-     pub fn insert_object(&mut self, layer: LayerIdx, chunk: ChunkCoord, object_rec: ObjectRec) {
--        let bucket = self.buckets.entry(chunk).or_insert_with(GlobalChunk::new);
-+        let bucket = self.buckets.entry(chunk).or_default();
-         bucket
-             .layers
-             .entry(layer)
 diff --git a/ticket_diff.txt b/ticket_diff.txt
-index 392f3bd..ba0a50a 100644
+index 76a902f..e69de29 100644
 --- a/ticket_diff.txt
 +++ b/ticket_diff.txt
-@@ -1,2199 +0,0 @@
--diff --git a/examples/basic_map.rs b/examples/basic_map.rs
--index 41a1859..d69606d 100644
----- a/examples/basic_map.rs
--+++ b/examples/basic_map.rs
--@@ -16,6 +16,10 @@ async fn main() {
--     let mut map = Map::load("assets2/map.json")
--         .await
--         .expect("Failed to load map");
--+    let max_frames = std::env::var("MQ_FRAMES")
--+        .ok()
--+        .and_then(|s| s.parse::<u64>().ok());
--+    let mut frame_count = 0u64;
-- 
--     let screen_size = Vec2::new(screen_width(), screen_height());
-- 
--@@ -34,5 +38,11 @@ async fn main() {
--         );
-- 
--         next_frame().await;
--+        frame_count += 1;
--+        if let Some(max) = max_frames {
--+            if frame_count >= max {
--+                break;
--+            }
--+        }
--     }
-- }
+@@ -1,2559 +0,0 @@
 -diff --git a/examples/objects.rs b/examples/objects.rs
--index 9002986..79e658f 100644
+-index 79e658f..f286bc0 100644
 ---- a/examples/objects.rs
 -+++ b/examples/objects.rs
--@@ -15,6 +15,10 @@ async fn main() {
--     let mut map = Map::load("assets2/map.json")
--         .await
--         .expect("Failed to load map");
--+    let max_frames = std::env::var("MQ_FRAMES")
--+        .ok()
--+        .and_then(|s| s.parse::<u64>().ok());
--+    let mut frame_count = 0u64;
+-@@ -27,10 +27,11 @@ async fn main() {
 - 
--     println!("object_layers={}", map.object_layers().len());
--     println!("objects={}", map.objects().count());
--@@ -30,5 +34,11 @@ async fn main() {
+-     loop {
+-         clear_background(BLACK);
+-+        let stamp = map.next_frame_stamp();
+- 
+-         map.draw_visible_rect(Vec2::ZERO, screen_size);
+--        map.draw_objects_tiles(Vec2::ZERO, screen_size);
+--        map.draw_objects_debug(Vec2::ZERO, screen_size);
+-+        map.draw_objects_tiles(Vec2::ZERO, screen_size, stamp);
+-+        map.draw_objects_debug(Vec2::ZERO, screen_size, stamp);
 - 
 -         draw_text("objects example", 20.0, 30.0, 32.0, WHITE);
 -         next_frame().await;
--+        frame_count += 1;
--+        if let Some(max) = max_frames {
--+            if frame_count >= max {
--+                break;
--+            }
--+        }
--     }
-- }
 -diff --git a/src/map.rs b/src/map.rs
--index ffed3ce..aac5601 100644
+-index aac5601..5fc5309 100644
 ---- a/src/map.rs
 -+++ b/src/map.rs
--@@ -32,6 +32,8 @@ pub struct ObjectLayer {
--     pub properties: Properties,
--     pub objects: Vec<IrObject>,
--     bucket_layer: LayerIdx,
--+    // Separate dedupe buffers let tile-object rendering and debug overlay
--+    // each draw an object once per frame, using the same frame stamp.
--     seen_stamp_tiles: Vec<u32>,
--     seen_stamp_debug: Vec<u32>,
+-@@ -52,13 +52,47 @@ enum LayerKindInfo {
+-     Unsupported,
 - }
--@@ -56,6 +58,7 @@ pub struct Map {
--     object_layers: Vec<ObjectLayer>,
--     debug_draw: bool,
--     frame_stamp: u32,
+- 
+-+struct MapRenderer {
+-+    debug_draw: bool,
 -+    cull_padding: f32,
+-+    frame_stamp: u32,
+-+}
+-+
+-+impl MapRenderer {
+-+    fn new() -> Self {
+-+        Self::default()
+-+    }
+-+
+-+    fn next_frame_stamp(&mut self, object_layers: &mut [ObjectLayer]) -> u32 {
+-+        if self.frame_stamp == u32::MAX {
+-+            for layer in object_layers {
+-+                layer.seen_stamp_tiles.fill(0);
+-+                layer.seen_stamp_debug.fill(0);
+-+            }
+-+            self.frame_stamp = 1;
+-+            return 1;
+-+        }
+-+
+-+        self.frame_stamp += 1;
+-+        self.frame_stamp
+-+    }
+-+}
+-+
+-+impl Default for MapRenderer {
+-+    fn default() -> Self {
+-+        Self {
+-+            debug_draw: false,
+-+            cull_padding: CHUNK_SIZE as f32,
+-+            frame_stamp: 0,
+-+        }
+-+    }
+-+}
+-+
+- pub struct Map {
+-     pub index: GlobalIndex,
+-     pub tilesets: Vec<TilesetInfo>,
+-     object_layers: Vec<ObjectLayer>,
+--    debug_draw: bool,
+--    frame_stamp: u32,
+--    cull_padding: f32,
+-+    renderer: MapRenderer,
 -     gid_lut: Vec<u16>, //lookup table for tile GIDs to tileset indices
 -     tile_layers: Vec<TileLayerDrawInfo>,
 -     draw_order: Vec<LayerId>,
--@@ -215,6 +218,7 @@ impl Map {
+-@@ -168,7 +202,7 @@ impl Map {
+-                                     bucket_layer,
+-                                     cc,
+-                                     crate::spatial::ObjectRec {
+--                                        id: object_idx as u32,
+-+                                        handle: crate::spatial::ObjectHandle(object_idx as u32),
+-                                         rel_pos: rel(world),
+-                                     },
+-                                 );
+-@@ -216,9 +250,7 @@ impl Map {
+-             index,
+-             tilesets,
 -             object_layers,
--             debug_draw: false,
--             frame_stamp: 0,
--+            cull_padding: CHUNK_SIZE as f32,
+--            debug_draw: false,
+--            frame_stamp: 0,
+--            cull_padding: CHUNK_SIZE as f32,
+-+            renderer: MapRenderer::new(),
 -             gid_lut,
 -             tile_layers,
 -             draw_order,
--@@ -266,17 +270,17 @@ impl Map {
+-@@ -270,17 +302,8 @@ impl Map {
 -         }
 -     }
 - 
---    fn next_stamp(frame_stamp: &mut u32, object_layers: &mut [ObjectLayer]) -> u32 {
---        if *frame_stamp == u32::MAX {
---            for layer in object_layers {
--+    fn next_frame_stamp(&mut self) -> u32 {
--+        if self.frame_stamp == u32::MAX {
--+            for layer in &mut self.object_layers {
--                 layer.seen_stamp_tiles.fill(0);
--                 layer.seen_stamp_debug.fill(0);
--             }
---            *frame_stamp = 1;
--+            self.frame_stamp = 1;
--             return 1;
--         }
---        *frame_stamp += 1;
---        *frame_stamp
--+        self.frame_stamp += 1;
--+        self.frame_stamp
+--    fn next_frame_stamp(&mut self) -> u32 {
+--        if self.frame_stamp == u32::MAX {
+--            for layer in &mut self.object_layers {
+--                layer.seen_stamp_tiles.fill(0);
+--                layer.seen_stamp_debug.fill(0);
+--            }
+--            self.frame_stamp = 1;
+--            return 1;
+--        }
+--        self.frame_stamp += 1;
+--        self.frame_stamp
+-+    pub fn next_frame_stamp(&mut self) -> u32 {
+-+        self.renderer.next_frame_stamp(&mut self.object_layers)
 -     }
 - 
 -     pub fn object_layers(&self) -> &[ObjectLayer] {
--@@ -355,10 +359,11 @@ impl Map {
--     }
-- 
--     pub fn draw(&mut self, view_min: Vec2, view_max: Vec2) {
---        let coords = Self::visible_coords_for_draw(view_min, view_max);
---        let draw_order = self.draw_order.clone();
---        for layer_id in &draw_order {
---            let Some(kind) = self.layer_kind_by_id.get(layer_id).copied() else {
--+        let coords = self.visible_coords_for_draw(view_min, view_max);
--+        let stamp = self.next_frame_stamp();
--+        for i in 0..self.draw_order.len() {
--+            let layer_id = self.draw_order[i];
--+            let Some(kind) = self.layer_kind_by_id.get(&layer_id).copied() else {
--                 continue;
--             };
--             match kind {
--@@ -366,11 +371,8 @@ impl Map {
--                     self.draw_tile_layer_from_coords(&coords, tile_layer_idx);
+-@@ -372,7 +395,7 @@ impl Map {
 -                 }
 -                 LayerKindInfo::Objects(object_layer_idx) => {
---                    let stamp = Self::next_stamp(&mut self.frame_stamp, &mut self.object_layers);
 -                     self.draw_object_tiles_layer_from_coords(&coords, object_layer_idx, stamp);
--                     if self.debug_draw {
---                        let stamp =
---                            Self::next_stamp(&mut self.frame_stamp, &mut self.object_layers);
+--                    if self.debug_draw {
+-+                    if self.renderer.debug_draw {
 -                         self.draw_object_debug_layer_from_coords(&coords, object_layer_idx, stamp);
 -                     }
 -                 }
--@@ -383,13 +385,17 @@ impl Map {
--         self.debug_draw = enabled;
+-@@ -382,21 +405,21 @@ impl Map {
 -     }
 - 
--+    pub fn set_cull_padding(&mut self, padding: f32) {
--+        self.cull_padding = padding.max(0.0);
--+    }
--+
--     pub fn draw_objects_debug(&mut self, view_min: Vec2, view_max: Vec2) {
---        let coords = Self::visible_coords_for_draw(view_min, view_max);
--+        let coords = self.visible_coords_for_draw(view_min, view_max);
--         self.draw_chunk_objects_debug_coords(&coords);
+-     pub fn set_debug_draw(&mut self, enabled: bool) {
+--        self.debug_draw = enabled;
+-+        self.renderer.debug_draw = enabled;
 -     }
 - 
--     pub fn draw_objects_tiles(&mut self, view_min: Vec2, view_max: Vec2) {
---        let coords = Self::visible_coords_for_draw(view_min, view_max);
--+        let coords = self.visible_coords_for_draw(view_min, view_max);
--         self.draw_chunk_objects_tiles_coords(&coords);
+-     pub fn set_cull_padding(&mut self, padding: f32) {
+--        self.cull_padding = padding.max(0.0);
+-+        self.renderer.cull_padding = padding.max(0.0);
 -     }
 - 
--@@ -512,14 +518,14 @@ impl Map {
+--    pub fn draw_objects_debug(&mut self, view_min: Vec2, view_max: Vec2) {
+-+    pub fn draw_objects_debug(&mut self, view_min: Vec2, view_max: Vec2, stamp: u32) {
+-         let coords = self.visible_coords_for_draw(view_min, view_max);
+--        self.draw_chunk_objects_debug_coords(&coords);
+-+        self.draw_object_layers_debug_from_coords(&coords, stamp);
 -     }
 - 
--     fn draw_chunk_objects_debug_coords(&mut self, coords: &[crate::spatial::ChunkCoord]) {
---        let stamp = Self::next_stamp(&mut self.frame_stamp, &mut self.object_layers);
--+        let stamp = self.next_frame_stamp();
+--    pub fn draw_objects_tiles(&mut self, view_min: Vec2, view_max: Vec2) {
+-+    pub fn draw_objects_tiles(&mut self, view_min: Vec2, view_max: Vec2, stamp: u32) {
+-         let coords = self.visible_coords_for_draw(view_min, view_max);
+--        self.draw_chunk_objects_tiles_coords(&coords);
+-+        self.draw_object_layers_tiles_from_coords(&coords, stamp);
+-     }
+- 
+-     fn draw_chunks(&self, view: LocalView) {
+-@@ -470,13 +493,7 @@ impl Map {
+-         }
+-         let tint = Color::new(1.0, 1.0, 1.0, layer.opacity);
+- 
+--        for cc in coords {
+--            let Some(global_chunk) = self.index.buckets.get(cc) else {
+--                continue;
+--            };
+--            let Some(bucket) = global_chunk.layers.get(&layer.layer_id) else {
+--                continue;
+--            };
+-+        Self::for_each_visible_layer_bucket(&self.index, coords, layer.layer_id, |cc, bucket| {
+-             for rec in &bucket.tiles {
+-                 let (ts, local) = match self.ts_for_gid(rec.id) {
+-                     Some(x) => x,
+-@@ -514,18 +531,24 @@ impl Map {
+-                     },
+-                 );
+-             }
+--        }
+-+        });
+-     }
+- 
+--    fn draw_chunk_objects_debug_coords(&mut self, coords: &[crate::spatial::ChunkCoord]) {
+--        let stamp = self.next_frame_stamp();
+-+    fn draw_object_layers_debug_from_coords(
+-+        &mut self,
+-+        coords: &[crate::spatial::ChunkCoord],
+-+        stamp: u32,
+-+    ) {
 -         for layer_idx in 0..self.object_layers.len() {
 -             self.draw_object_debug_layer_from_coords(coords, layer_idx, stamp);
 -         }
 -     }
 - 
--     fn draw_chunk_objects_tiles_coords(&mut self, coords: &[crate::spatial::ChunkCoord]) {
---        let stamp = Self::next_stamp(&mut self.frame_stamp, &mut self.object_layers);
--+        let stamp = self.next_frame_stamp();
+--    fn draw_chunk_objects_tiles_coords(&mut self, coords: &[crate::spatial::ChunkCoord]) {
+--        let stamp = self.next_frame_stamp();
+-+    fn draw_object_layers_tiles_from_coords(
+-+        &mut self,
+-+        coords: &[crate::spatial::ChunkCoord],
+-+        stamp: u32,
+-+    ) {
 -         for layer_idx in 0..self.object_layers.len() {
 -             self.draw_object_tiles_layer_from_coords(coords, layer_idx, stamp);
 -         }
--@@ -718,8 +724,12 @@ impl Map {
+-@@ -549,18 +572,16 @@ impl Map {
+-         let polygon_color = Color::new(SKYBLUE.r, SKYBLUE.g, SKYBLUE.b, alpha);
+-         let polyline_color = Color::new(PINK.r, PINK.g, PINK.b, alpha);
+-         let tile_color = Color::new(MAGENTA.r, MAGENTA.g, MAGENTA.b, alpha);
+-+        let bucket_layer = layer.bucket_layer;
+- 
+--        for cc in coords {
+--            let Some(global_chunk) = self.index.buckets.get(cc) else {
+--                continue;
+--            };
+--            let Some(layer_bucket) = global_chunk.layers.get(&layer.bucket_layer) else {
+--                continue;
+--            };
+-+        Self::for_each_visible_layer_bucket(&self.index, coords, bucket_layer, |cc, layer_bucket| {
+-             let records = &layer_bucket.objects;
+--
+-             for rec in records {
+--                let object_idx = rec.id as usize;
+-+                let object_idx = rec.handle.0 as usize;
+-+                if object_idx >= layer.objects.len() {
+-+                    debug_assert!(false, "ObjectHandle out of bounds for debug draw");
+-+                    continue;
+-+                }
+-                 if object_idx >= layer.seen_stamp_debug.len()
+-                     || layer.seen_stamp_debug[object_idx] == stamp
+-                 {
+-@@ -623,7 +644,7 @@ impl Map {
+-                     }
+-                 }
+-             }
+--        }
+-+        });
+-     }
+- 
+-     fn draw_object_tiles_layer_from_coords(
+-@@ -641,18 +662,16 @@ impl Map {
+-             return;
+-         }
+-         let tint = Color::new(1.0, 1.0, 1.0, layer.opacity.clamp(0.0, 1.0));
+-+        let bucket_layer = layer.bucket_layer;
+- 
+--        for cc in coords {
+--            let Some(global_chunk) = self.index.buckets.get(cc) else {
+--                continue;
+--            };
+--            let Some(layer_bucket) = global_chunk.layers.get(&layer.bucket_layer) else {
+--                continue;
+--            };
+-+        Self::for_each_visible_layer_bucket(&self.index, coords, bucket_layer, |cc, layer_bucket| {
+-             let records = &layer_bucket.objects;
+--
+-             for rec in records {
+--                let object_idx = rec.id as usize;
+-+                let object_idx = rec.handle.0 as usize;
+-+                if object_idx >= layer.objects.len() {
+-+                    debug_assert!(false, "ObjectHandle out of bounds for tile draw");
+-+                    continue;
+-+                }
+-                 if object_idx >= layer.seen_stamp_tiles.len()
+-                     || layer.seen_stamp_tiles[object_idx] == stamp
+-                 {
+-@@ -717,10 +736,28 @@ impl Map {
+-                         flip_x,
+-                         flip_y,
+-                         pivot: Some(vec2(0.0, h)),
+--                        ..Default::default()
+-                     },
+-                 );
+-             }
+-+        });
+-+    }
+-+
+-+    fn for_each_visible_layer_bucket<F>(
+-+        index: &GlobalIndex,
+-+        coords: &[crate::spatial::ChunkCoord],
+-+        bucket_layer: LayerIdx,
+-+        mut f: F,
+-+    ) where
+-+        F: FnMut(crate::spatial::ChunkCoord, &crate::spatial::LayerBucket),
+-+    {
+-+        for cc in coords {
+-+            let Some(chunk) = index.buckets.get(cc) else {
+-+                continue;
+-+            };
+-+            let Some(bucket) = chunk.layers.get(&bucket_layer) else {
+-+                continue;
+-+            };
+-+            f(*cc, bucket);
 -         }
 -     }
 - 
---    fn visible_coords_for_draw(view_min: Vec2, view_max: Vec2) -> Vec<crate::spatial::ChunkCoord> {
---        let pad = CHUNK_SIZE as f32;
--+    fn visible_coords_for_draw(
--+        &self,
--+        view_min: Vec2,
--+        view_max: Vec2,
--+    ) -> Vec<crate::spatial::ChunkCoord> {
--+        let pad = self.cull_padding;
+-@@ -729,7 +766,7 @@ impl Map {
+-         view_min: Vec2,
+-         view_max: Vec2,
+-     ) -> Vec<crate::spatial::ChunkCoord> {
+--        let pad = self.cull_padding;
+-+        let pad = self.renderer.cull_padding;
 -         visible_chunk_coords_rect(
 -             vec2(view_min.x - pad, view_min.y - pad),
 -             vec2(view_max.x + pad, view_max.y + pad),
+-diff --git a/src/spatial/index.rs b/src/spatial/index.rs
+-index 94179b7..7eebf37 100644
+---- a/src/spatial/index.rs
+-+++ b/src/spatial/index.rs
+-@@ -70,10 +70,13 @@ pub struct TileRec {
+- 
+- #[derive(Debug, Clone)]
+- pub struct ObjectRec {
+--    pub id: u32,
+-+    pub handle: ObjectHandle,
+-     pub rel_pos: Vec2,
+- }
+- 
+-+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+-+pub struct ObjectHandle(pub u32);
+-+
+- #[derive(Debug, Clone, Default)]
+- pub struct LayerBucket {
+-     pub tiles: Vec<TileRec>,
+-@@ -92,6 +95,12 @@ impl GlobalChunk {
+-     }
+- }
+- 
+-+impl Default for GlobalChunk {
+-+    fn default() -> Self {
+-+        Self::new()
+-+    }
+-+}
+-+
+- pub struct TileLoc {
+-     pub chunk: ChunkCoord,
+-     pub layer: LayerIdx,
+-@@ -121,11 +130,17 @@ impl GlobalIndex {
+-     }
+- }
+- 
+-+impl Default for GlobalIndex {
+-+    fn default() -> Self {
+-+        Self::new()
+-+    }
+-+}
+-+
+- impl GlobalIndex {
+-     pub fn add_tile(&mut self, id: TileId, layer: LayerIdx, world: Vec2) -> TileHandle {
+-         let cc = world_to_chunk(world);
+-         let handle = self.alloc_handle();
+--        let bucket = self.buckets.entry(cc).or_insert_with(GlobalChunk::new);
+-+        let bucket = self.buckets.entry(cc).or_default();
+-         let vec = &mut bucket.layers.entry(layer).or_default().tiles;
+- 
+-         let idx = vec.len();
+-@@ -143,7 +158,7 @@ impl GlobalIndex {
+-     }
+- 
+-     pub fn insert_object(&mut self, layer: LayerIdx, chunk: ChunkCoord, object_rec: ObjectRec) {
+--        let bucket = self.buckets.entry(chunk).or_insert_with(GlobalChunk::new);
+-+        let bucket = self.buckets.entry(chunk).or_default();
+-         bucket
+-             .layers
+-             .entry(layer)
 -diff --git a/ticket_diff.txt b/ticket_diff.txt
--index 64f832e..e69de29 100644
+-index 392f3bd..ba0a50a 100644
 ---- a/ticket_diff.txt
 -+++ b/ticket_diff.txt
--@@ -1,2007 +0,0 @@
---diff --git a/README.md b/README.md
---index 0d8eb47..75aec17 100644
------ a/README.md
---+++ b/README.md
---@@ -5,23 +5,31 @@ Minimal Tiled JSON loader and renderer for Macroquad.
--- ## Supports
--- 
--- - Tiled JSON maps (orthogonal) with external tilesets (`source` .json)
----- Tile layers with `data` arrays
---+- Tile layers (finite) with `data` arrays
--- - Object layers (`objectgroup`)
---+- Tile objects (`gid`)
--- - Multiple tilesets (firstgid mapping)
--- - Per-layer offsets
--- - Properties on map/layer/object/tileset/tile
--- - Tile flip/rotation flags from Tiled GIDs
--- - Rendering via `draw_texture_ex` with nearest filtering
--- - Universal draw API: `map.draw(view_min, view_max)` (tiles + tile-objects)
---+- Optional debug outlines via `set_debug_draw(true)`
--- 
--- ## Not yet
--- 
----- Inline tilesets
----- Image layers
--- - Infinite maps (chunked layers)
---+- Image layers
---+- Group layers
---+- Embedded tilesets
---+- Base64/compressed layer data
--- - Isometric or hex maps
--- - Tile animations
----- Layer visibility/opacity in rendering
---+
---+## Rendering API
---+
---+- `draw(view_min, view_max)`: draws tiles + tile-objects, and draws debug outlines when `debug_draw` is enabled.
---+- `draw_visible_rect(view_min, view_max)`: draws tiles only (advanced/manual flow).
--- 
--- ## Quickstart
--- 
---@@ -58,4 +66,3 @@ Minimal Tiled JSON loader and renderer for Macroquad.
--- - Tilesets must be external JSON tilesets with a single atlas image.
--- - Unsupported layer kinds are skipped.
--- - Infinite maps are not supported (no chunked `layers[].chunks`).
----- Layer `visible` and `opacity` are loaded but not applied at draw time.
+-@@ -1,2199 +0,0 @@
 --diff --git a/examples/basic_map.rs b/examples/basic_map.rs
---index db1feca..41a1859 100644
+--index 41a1859..d69606d 100644
 ----- a/examples/basic_map.rs
 --+++ b/examples/basic_map.rs
---@@ -13,7 +13,7 @@ fn window_conf() -> Conf {
--- 
--- #[macroquad::main(window_conf)] // ❷ pass the window config function here
--- async fn main() {
----    let map = Map::load("assets2/map.json")
---+    let mut map = Map::load("assets2/map.json")
+--@@ -16,6 +16,10 @@ async fn main() {
+--     let mut map = Map::load("assets2/map.json")
 --         .await
 --         .expect("Failed to load map");
+--+    let max_frames = std::env::var("MQ_FRAMES")
+--+        .ok()
+--+        .and_then(|s| s.parse::<u64>().ok());
+--+    let mut frame_count = 0u64;
 -- 
+--     let screen_size = Vec2::new(screen_width(), screen_height());
+-- 
+--@@ -34,5 +38,11 @@ async fn main() {
+--         );
+-- 
+--         next_frame().await;
+--+        frame_count += 1;
+--+        if let Some(max) = max_frames {
+--+            if frame_count >= max {
+--+                break;
+--+            }
+--+        }
+--     }
+-- }
 --diff --git a/examples/objects.rs b/examples/objects.rs
---index cd1ed75..9002986 100644
+--index 9002986..79e658f 100644
 ----- a/examples/objects.rs
 --+++ b/examples/objects.rs
---@@ -12,7 +12,7 @@ fn window_conf() -> Conf {
--- 
--- #[macroquad::main(window_conf)]
--- async fn main() {
----    let map = Map::load("assets2/map.json")
---+    let mut map = Map::load("assets2/map.json")
+--@@ -15,6 +15,10 @@ async fn main() {
+--     let mut map = Map::load("assets2/map.json")
 --         .await
 --         .expect("Failed to load map");
+--+    let max_frames = std::env::var("MQ_FRAMES")
+--+        .ok()
+--+        .and_then(|s| s.parse::<u64>().ok());
+--+    let mut frame_count = 0u64;
 -- 
---diff --git a/src.zip b/src.zip
---index 60aeee9..c33c0f4 100644
---Binary files a/src.zip and b/src.zip differ
+--     println!("object_layers={}", map.object_layers().len());
+--     println!("objects={}", map.objects().count());
+--@@ -30,5 +34,11 @@ async fn main() {
+-- 
+--         draw_text("objects example", 20.0, 30.0, 32.0, WHITE);
+--         next_frame().await;
+--+        frame_count += 1;
+--+        if let Some(max) = max_frames {
+--+            if frame_count >= max {
+--+                break;
+--+            }
+--+        }
+--     }
+-- }
 --diff --git a/src/map.rs b/src/map.rs
---index f2209f0..1a59259 100644
+--index ffed3ce..aac5601 100644
 ----- a/src/map.rs
 --+++ b/src/map.rs
---@@ -2,7 +2,7 @@ use crate::ir_map::*;
--- use crate::loader::json_loader::*;
--- use crate::render::*;
--- use crate::{
----    spatial::{rel, world_to_chunk, ChunkCoord, CHUNK_SIZE},
---+    spatial::{rel, world_to_chunk, CHUNK_SIZE},
---     GlobalIndex, LayerIdx, TileId,
--- };
--- use anyhow::Context;
---@@ -10,6 +10,8 @@ use macroquad::prelude::*;
--- use std::collections::HashMap;
--- use std::path::Path;
--- 
---+pub type LayerId = u32;
---+
--- pub struct TilesetInfo {
---     pub first_gid: u32,
---     pub tilecount: u32,
---@@ -22,18 +24,16 @@ pub struct TilesetInfo {
--- }
--- 
--- pub struct ObjectLayer {
---+    pub id: LayerId,
---     pub name: String,
---     pub visible: bool,
---     pub opacity: f32,
---     pub offset: Vec2,
+--@@ -32,6 +32,8 @@ pub struct ObjectLayer {
 --     pub properties: Properties,
 --     pub objects: Vec<IrObject>,
----}
----
----#[derive(Clone, Copy)]
----struct ObjectRec {
----    object_idx: usize,
----    rel_pos: Vec2,
---+    bucket_layer: LayerIdx,
---+    seen_stamp_tiles: Vec<u32>,
---+    seen_stamp_debug: Vec<u32>,
+--     bucket_layer: LayerIdx,
+--+    // Separate dedupe buffers let tile-object rendering and debug overlay
+--+    // each draw an object once per frame, using the same frame stamp.
+--     seen_stamp_tiles: Vec<u32>,
+--     seen_stamp_debug: Vec<u32>,
 -- }
--- 
--- #[derive(Clone, Copy)]
---@@ -44,20 +44,22 @@ struct TileLayerDrawInfo {
--- }
--- 
--- #[derive(Clone, Copy)]
----enum DrawLayer {
---+enum LayerKindInfo {
---     Tiles(usize),
---     Objects(usize),
---+    Unsupported,
--- }
--- 
--- pub struct Map {
---     pub index: GlobalIndex,
---     pub tilesets: Vec<TilesetInfo>,
+--@@ -56,6 +58,7 @@ pub struct Map {
 --     object_layers: Vec<ObjectLayer>,
----    object_buckets: HashMap<ChunkCoord, HashMap<usize, Vec<ObjectRec>>>,
 --     debug_draw: bool,
---+    frame_stamp: u32,
+--     frame_stamp: u32,
+--+    cull_padding: f32,
 --     gid_lut: Vec<u16>, //lookup table for tile GIDs to tileset indices
 --     tile_layers: Vec<TileLayerDrawInfo>,
----    draw_order: Vec<DrawLayer>,
---+    draw_order: Vec<LayerId>,
---+    layer_kind_by_id: HashMap<LayerId, LayerKindInfo>,
---     pub tile_w: u32,
---     pub tile_h: u32,
--- }
---@@ -125,80 +127,85 @@ impl Map {
--- 
---         let mut index = GlobalIndex::new();
---         let mut object_layers = Vec::new();
----        let mut object_buckets: HashMap<ChunkCoord, HashMap<usize, Vec<ObjectRec>>> =
----            HashMap::new();
---         let mut tile_layers: Vec<TileLayerDrawInfo> = Vec::new();
----        let mut draw_order: Vec<DrawLayer> = Vec::new();
---+        let mut draw_order: Vec<LayerId> = Vec::new();
---+        let mut layer_kind_by_id: HashMap<LayerId, LayerKindInfo> = HashMap::new();
--- 
---         for (lz, layer) in ir.layers.iter().enumerate() {
----            if let IrLayerKind::Objects { objects } = &layer.kind {
---+            let stable_id = lz as LayerId;
---+            draw_order.push(stable_id);
---+
---+            match &layer.kind {
---+                IrLayerKind::Objects { objects } => {
---                 let layer_idx = object_layers.len();
---+                let bucket_layer = lz as LayerIdx;
---                 object_layers.push(ObjectLayer {
---+                    id: stable_id,
---                     name: layer.name.clone(),
---                     visible: layer.visible,
---                     opacity: layer.opacity,
---                     offset: layer.offset,
---                     properties: layer.properties.clone(),
---                     objects: objects.clone(),
---+                    bucket_layer,
---+                    seen_stamp_tiles: vec![0; objects.len()],
---+                    seen_stamp_debug: vec![0; objects.len()],
---                 });
--- 
----                for (object_idx, obj) in objects.iter().enumerate() {
----                    let world = vec2(obj.x, obj.y) + layer.offset;
----                    let (min, max) = Self::object_aabb_world(obj, layer.offset);
----                    let chunk_min = world_to_chunk(min);
----                    let chunk_max = world_to_chunk(max);
----
----                    for cy in chunk_min.y..=chunk_max.y {
----                        for cx in chunk_min.x..=chunk_max.x {
----                            let cc = ChunkCoord { x: cx, y: cy };
----                            let by_layer = object_buckets.entry(cc).or_default();
----                            by_layer.entry(layer_idx).or_default().push(ObjectRec {
----                                object_idx,
----                                rel_pos: rel(world),
----                            });
---+                    for (object_idx, obj) in objects.iter().enumerate() {
---+                        let world = vec2(obj.x, obj.y) + layer.offset;
---+                        let (min, max) = Self::object_aabb_world(obj, layer.offset);
---+                        let chunk_min = world_to_chunk(min);
---+                        let chunk_max = world_to_chunk(max);
---+
---+                        for cy in chunk_min.y..=chunk_max.y {
---+                            for cx in chunk_min.x..=chunk_max.x {
---+                                let cc = crate::spatial::ChunkCoord { x: cx, y: cy };
---+                                index.insert_object(
---+                                    bucket_layer,
---+                                    cc,
---+                                    crate::spatial::ObjectRec {
---+                                        id: object_idx as u32,
---+                                        rel_pos: rel(world),
---+                                    },
---+                                );
---+                            }
---                         }
---                     }
----                }
----                draw_order.push(DrawLayer::Objects(layer_idx));
----                continue;
----            }
----
----            let lid = lz as LayerIdx;
----            let mut inserted_any = false;
--- 
----            let (width, data) = match &layer.kind {
---+                    layer_kind_by_id.insert(stable_id, LayerKindInfo::Objects(layer_idx));
---+                }
---                 IrLayerKind::Tiles {
---                     width,
---                     height: _,
---                     data,
----                } => (width, data),
----                _ => continue,
----            };
---+                } => {
---+                    let tile_layer_idx = tile_layers.len();
---+                    let lid = lz as LayerIdx;
--- 
----            let tw = ir.tile_w as f32;
----            let th = ir.tile_h as f32;
---+                    let tw = ir.tile_w as f32;
---+                    let th = ir.tile_h as f32;
---+                    for (idx, gid) in data.iter().enumerate() {
---+                        if *gid == 0 {
---+                            continue;
---+                        }
---+                        let col = idx % *width;
---+                        let row = idx / *width;
---+                        let mut world = vec2(col as f32 * tw, row as f32 * th);
---+                        world += layer.offset;
---+                        index.add_tile(TileId(*gid), lid, world);
---+                    }
--- 
----            for (idx, gid) in data.iter().enumerate() {
----                if *gid == 0 {
----                    continue;
---+                    tile_layers.push(TileLayerDrawInfo {
---+                        layer_id: lid,
---+                        visible: layer.visible,
---+                        opacity: layer.opacity.clamp(0.0, 1.0),
---+                    });
---+                    layer_kind_by_id.insert(stable_id, LayerKindInfo::Tiles(tile_layer_idx));
---+                }
---+                IrLayerKind::Unsupported => {
---+                    layer_kind_by_id.insert(stable_id, LayerKindInfo::Unsupported);
---                 }
----
----                let col = idx % *width;
----                let row = idx / *width;
----                let mut world = vec2(col as f32 * tw, row as f32 * th);
----                world += layer.offset;
----
----                index.add_tile(TileId(*gid), lid, world);
----                inserted_any = true;
----            }
----
----            if inserted_any {
----                tile_layers.push(TileLayerDrawInfo {
----                    layer_id: lid,
----                    visible: layer.visible,
----                    opacity: layer.opacity.clamp(0.0, 1.0),
----                });
----                draw_order.push(DrawLayer::Tiles(tile_layers.len() - 1));
---             }
---         }
--- 
---@@ -206,11 +213,12 @@ impl Map {
---             index,
---             tilesets,
+--     draw_order: Vec<LayerId>,
+--@@ -215,6 +218,7 @@ impl Map {
 --             object_layers,
----            object_buckets,
 --             debug_draw: false,
---+            frame_stamp: 0,
+--             frame_stamp: 0,
+--+            cull_padding: CHUNK_SIZE as f32,
 --             gid_lut,
 --             tile_layers,
 --             draw_order,
---+            layer_kind_by_id,
---             tile_w: ir.tile_w,
---             tile_h: ir.tile_h,
---         })
---@@ -258,6 +266,19 @@ impl Map {
+--@@ -266,17 +270,17 @@ impl Map {
 --         }
 --     }
 -- 
---+    fn next_stamp(frame_stamp: &mut u32, object_layers: &mut [ObjectLayer]) -> u32 {
---+        if *frame_stamp == u32::MAX {
---+            for layer in object_layers {
---+                layer.seen_stamp_tiles.fill(0);
---+                layer.seen_stamp_debug.fill(0);
---+            }
---+            *frame_stamp = 1;
---+            return 1;
---+        }
---+        *frame_stamp += 1;
---+        *frame_stamp
---+    }
---+
+---    fn next_stamp(frame_stamp: &mut u32, object_layers: &mut [ObjectLayer]) -> u32 {
+---        if *frame_stamp == u32::MAX {
+---            for layer in object_layers {
+--+    fn next_frame_stamp(&mut self) -> u32 {
+--+        if self.frame_stamp == u32::MAX {
+--+            for layer in &mut self.object_layers {
+--                 layer.seen_stamp_tiles.fill(0);
+--                 layer.seen_stamp_debug.fill(0);
+--             }
+---            *frame_stamp = 1;
+--+            self.frame_stamp = 1;
+--             return 1;
+--         }
+---        *frame_stamp += 1;
+---        *frame_stamp
+--+        self.frame_stamp += 1;
+--+        self.frame_stamp
+--     }
+-- 
 --     pub fn object_layers(&self) -> &[ObjectLayer] {
---         &self.object_layers
---     }
---@@ -269,8 +290,7 @@ impl Map {
+--@@ -355,10 +359,11 @@ impl Map {
 --     }
 -- 
---     #[inline]
----    fn params_for_flips(
----        &self,
---+    fn params_for_flips_gid(
---         gid: TileId,
---         tile_w: f32,
---         tile_h: f32,
---@@ -295,39 +315,66 @@ impl Map {
---     }
--- 
---     #[inline]
----    fn ts_for_gid(&self, gid: TileId) -> Option<(&TilesetInfo, u32)> {
---+    fn params_for_flips(
---+        &self,
---+        gid: TileId,
---+        tile_w: f32,
---+        tile_h: f32,
---+    ) -> (f32, bool, bool, Option<Vec2>) {
---+        Self::params_for_flips_gid(gid, tile_w, tile_h)
---+    }
---+
---+    #[inline]
---+    fn ts_for_gid_from<'a>(
---+        gid: TileId,
---+        gid_lut: &'a [u16],
---+        tilesets: &'a [TilesetInfo],
---+    ) -> Option<(&'a TilesetInfo, u32)> {
---         let clean = gid.clean() as usize;
----        if clean >= self.gid_lut.len() {
---+        if clean >= gid_lut.len() {
---             return None;
---         }
--- 
----        let idx = self.gid_lut[clean];
---+        let idx = gid_lut[clean];
---         if idx == u16::MAX {
---             return None;
---         }
--- 
----        let ts = &self.tilesets[idx as usize];
---+        let ts = &tilesets[idx as usize];
---         Some((ts, gid.clean() - ts.first_gid))
---     }
--- 
---+    #[inline]
---+    fn ts_for_gid(&self, gid: TileId) -> Option<(&TilesetInfo, u32)> {
---+        Self::ts_for_gid_from(gid, &self.gid_lut, &self.tilesets)
---+    }
---+
---     pub fn draw_visible_rect(&self, view_min: Vec2, view_max: Vec2) {
---         let view = query_visible_rect(&self.index, view_min, view_max);
---         self.draw_chunks(view);
---     }
--- 
----    pub fn draw(&self, view_min: Vec2, view_max: Vec2) {
----        let view = query_visible_rect(&self.index, view_min, view_max);
----        for entry in &self.draw_order {
----            match entry {
----                DrawLayer::Tiles(tile_layer_idx) => {
----                    self.draw_tile_layer_from_view(&view, *tile_layer_idx);
---+    pub fn draw(&mut self, view_min: Vec2, view_max: Vec2) {
---+        let coords = Self::visible_coords_for_draw(view_min, view_max);
---+        let draw_order = self.draw_order.clone();
---+        for layer_id in &draw_order {
---+            let Some(kind) = self.layer_kind_by_id.get(layer_id).copied() else {
---+                continue;
---+            };
---+            match kind {
---+                LayerKindInfo::Tiles(tile_layer_idx) => {
---+                    self.draw_tile_layer_from_coords(&coords, tile_layer_idx);
+--     pub fn draw(&mut self, view_min: Vec2, view_max: Vec2) {
+---        let coords = Self::visible_coords_for_draw(view_min, view_max);
+---        let draw_order = self.draw_order.clone();
+---        for layer_id in &draw_order {
+---            let Some(kind) = self.layer_kind_by_id.get(layer_id).copied() else {
+--+        let coords = self.visible_coords_for_draw(view_min, view_max);
+--+        let stamp = self.next_frame_stamp();
+--+        for i in 0..self.draw_order.len() {
+--+            let layer_id = self.draw_order[i];
+--+            let Some(kind) = self.layer_kind_by_id.get(&layer_id).copied() else {
+--                 continue;
+--             };
+--             match kind {
+--@@ -366,11 +371,8 @@ impl Map {
+--                     self.draw_tile_layer_from_coords(&coords, tile_layer_idx);
 --                 }
----                DrawLayer::Objects(layer_idx) => {
----                    self.draw_object_tiles_layer_from_view(&view, *layer_idx);
---+                LayerKindInfo::Objects(object_layer_idx) => {
---+                    let stamp = Self::next_stamp(&mut self.frame_stamp, &mut self.object_layers);
---+                    self.draw_object_tiles_layer_from_coords(&coords, object_layer_idx, stamp);
+--                 LayerKindInfo::Objects(object_layer_idx) => {
+---                    let stamp = Self::next_stamp(&mut self.frame_stamp, &mut self.object_layers);
+--                     self.draw_object_tiles_layer_from_coords(&coords, object_layer_idx, stamp);
 --                     if self.debug_draw {
----                        self.draw_object_debug_layer_from_view(&view, *layer_idx);
---+                        let stamp =
---+                            Self::next_stamp(&mut self.frame_stamp, &mut self.object_layers);
---+                        self.draw_object_debug_layer_from_coords(&coords, object_layer_idx, stamp);
+---                        let stamp =
+---                            Self::next_stamp(&mut self.frame_stamp, &mut self.object_layers);
+--                         self.draw_object_debug_layer_from_coords(&coords, object_layer_idx, stamp);
 --                     }
 --                 }
---+                LayerKindInfo::Unsupported => {}
---             }
---         }
---     }
---@@ -336,14 +383,14 @@ impl Map {
+--@@ -383,13 +385,17 @@ impl Map {
 --         self.debug_draw = enabled;
 --     }
 -- 
----    pub fn draw_objects_debug(&self, view_min: Vec2, view_max: Vec2) {
----        let view = query_visible_rect(&self.index, view_min, view_max);
----        self.draw_chunk_objects_debug(view);
---+    pub fn draw_objects_debug(&mut self, view_min: Vec2, view_max: Vec2) {
---+        let coords = Self::visible_coords_for_draw(view_min, view_max);
---+        self.draw_chunk_objects_debug_coords(&coords);
---     }
--- 
----    pub fn draw_objects_tiles(&self, view_min: Vec2, view_max: Vec2) {
----        let view = query_visible_rect(&self.index, view_min, view_max);
----        self.draw_chunk_objects_tiles(view);
---+    pub fn draw_objects_tiles(&mut self, view_min: Vec2, view_max: Vec2) {
---+        let coords = Self::visible_coords_for_draw(view_min, view_max);
---+        self.draw_chunk_objects_tiles_coords(&coords);
---     }
--- 
---     fn draw_chunks(&self, view: LocalView) {
---@@ -362,8 +409,8 @@ impl Map {
---         let tint = Color::new(1.0, 1.0, 1.0, layer.opacity);
--- 
---         for LocalChunkView { coord: cc, layers } in &view.chunks {
----            if let Some(vec) = layers.get(&layer.layer_id) {
----                for rec in vec {
---+            if let Some(bucket) = layers.get(&layer.layer_id) {
---+                for rec in &bucket.tiles {
---                     let (ts, local) = match self.ts_for_gid(rec.id) {
---                         Some(x) => x,
---                         None => continue,
---@@ -404,20 +451,83 @@ impl Map {
---         }
---     }
--- 
----    fn draw_chunk_objects_debug(&self, view: LocalView) {
---+    fn draw_tile_layer_from_coords(&self, coords: &[crate::spatial::ChunkCoord], tile_layer_idx: usize) {
---+        let Some(layer) = self.tile_layers.get(tile_layer_idx) else {
---+            return;
---+        };
---+        if !layer.visible {
---+            return;
---+        }
---+        let tint = Color::new(1.0, 1.0, 1.0, layer.opacity);
---+
---+        for cc in coords {
---+            let Some(global_chunk) = self.index.buckets.get(cc) else {
---+                continue;
---+            };
---+            let Some(bucket) = global_chunk.layers.get(&layer.layer_id) else {
---+                continue;
---+            };
---+            for rec in &bucket.tiles {
---+                let (ts, local) = match self.ts_for_gid(rec.id) {
---+                    Some(x) => x,
---+                    None => continue,
---+                };
---+
---+                let col = local % ts.cols;
---+                let row = local / ts.cols;
---+                let sx = ts.margin + col * (ts.tile_w + ts.spacing);
---+                let sy = ts.margin + row * (ts.tile_h + ts.spacing);
---+
---+                let x = ((cc.x * CHUNK_SIZE) as f32 + rec.rel_pos.x).round();
---+                let y = ((cc.y * CHUNK_SIZE) as f32 + rec.rel_pos.y).round();
---+
---+                let (rotation, flip_x, flip_y, pivot) =
---+                    self.params_for_flips(rec.id, ts.tile_w as f32, ts.tile_h as f32);
---+
---+                draw_texture_ex(
---+                    &ts.tex,
---+                    x,
---+                    y,
---+                    tint,
---+                    DrawTextureParams {
---+                        source: Some(Rect::new(
---+                            sx as f32,
---+                            sy as f32,
---+                            ts.tile_w as f32,
---+                            ts.tile_h as f32,
---+                        )),
---+                        rotation,
---+                        flip_x,
---+                        flip_y,
---+                        pivot,
---+                        ..Default::default()
---+                    },
---+                );
---+            }
---+        }
+--+    pub fn set_cull_padding(&mut self, padding: f32) {
+--+        self.cull_padding = padding.max(0.0);
 --+    }
 --+
---+    fn draw_chunk_objects_debug_coords(&mut self, coords: &[crate::spatial::ChunkCoord]) {
---+        let stamp = Self::next_stamp(&mut self.frame_stamp, &mut self.object_layers);
+--     pub fn draw_objects_debug(&mut self, view_min: Vec2, view_max: Vec2) {
+---        let coords = Self::visible_coords_for_draw(view_min, view_max);
+--+        let coords = self.visible_coords_for_draw(view_min, view_max);
+--         self.draw_chunk_objects_debug_coords(&coords);
+--     }
+-- 
+--     pub fn draw_objects_tiles(&mut self, view_min: Vec2, view_max: Vec2) {
+---        let coords = Self::visible_coords_for_draw(view_min, view_max);
+--+        let coords = self.visible_coords_for_draw(view_min, view_max);
+--         self.draw_chunk_objects_tiles_coords(&coords);
+--     }
+-- 
+--@@ -512,14 +518,14 @@ impl Map {
+--     }
+-- 
+--     fn draw_chunk_objects_debug_coords(&mut self, coords: &[crate::spatial::ChunkCoord]) {
+---        let stamp = Self::next_stamp(&mut self.frame_stamp, &mut self.object_layers);
+--+        let stamp = self.next_frame_stamp();
 --         for layer_idx in 0..self.object_layers.len() {
----            self.draw_object_debug_layer_from_view(&view, layer_idx);
---+            self.draw_object_debug_layer_from_coords(coords, layer_idx, stamp);
+--             self.draw_object_debug_layer_from_coords(coords, layer_idx, stamp);
 --         }
 --     }
 -- 
----    fn draw_chunk_objects_tiles(&self, view: LocalView) {
---+    fn draw_chunk_objects_tiles_coords(&mut self, coords: &[crate::spatial::ChunkCoord]) {
---+        let stamp = Self::next_stamp(&mut self.frame_stamp, &mut self.object_layers);
+--     fn draw_chunk_objects_tiles_coords(&mut self, coords: &[crate::spatial::ChunkCoord]) {
+---        let stamp = Self::next_stamp(&mut self.frame_stamp, &mut self.object_layers);
+--+        let stamp = self.next_frame_stamp();
 --         for layer_idx in 0..self.object_layers.len() {
----            self.draw_object_tiles_layer_from_view(&view, layer_idx);
---+            self.draw_object_tiles_layer_from_coords(coords, layer_idx, stamp);
+--             self.draw_object_tiles_layer_from_coords(coords, layer_idx, stamp);
+--         }
+--@@ -718,8 +724,12 @@ impl Map {
 --         }
 --     }
 -- 
----    fn draw_object_debug_layer_from_view(&self, view: &LocalView, layer_idx: usize) {
----        let Some(layer) = self.object_layers.get(layer_idx) else {
---+    fn draw_object_debug_layer_from_coords(
---+        &mut self,
---+        coords: &[crate::spatial::ChunkCoord],
---+        layer_idx: usize,
---+        stamp: u32,
---+    ) {
---+        let Some(layer) = self.object_layers.get_mut(layer_idx) else {
---             return;
---         };
---         if !layer.visible {
---@@ -430,23 +540,25 @@ impl Map {
---         let polyline_color = Color::new(PINK.r, PINK.g, PINK.b, alpha);
---         let tile_color = Color::new(MAGENTA.r, MAGENTA.g, MAGENTA.b, alpha);
--- 
----        let mut drawn = vec![false; layer.objects.len()];
----
----        for LocalChunkView { coord: cc, .. } in &view.chunks {
----            let Some(by_layer) = self.object_buckets.get(cc) else {
---+        for cc in coords {
---+            let Some(global_chunk) = self.index.buckets.get(cc) else {
---                 continue;
---             };
----            let Some(records) = by_layer.get(&layer_idx) else {
---+            let Some(layer_bucket) = global_chunk.layers.get(&layer.bucket_layer) else {
---                 continue;
---             };
---+            let records = &layer_bucket.objects;
--- 
---             for rec in records {
----                if drawn[rec.object_idx] {
---+                let object_idx = rec.id as usize;
---+                if object_idx >= layer.seen_stamp_debug.len()
---+                    || layer.seen_stamp_debug[object_idx] == stamp
---+                {
---                     continue;
---                 }
----                drawn[rec.object_idx] = true;
---+                layer.seen_stamp_debug[object_idx] = stamp;
--- 
----                let Some(obj) = layer.objects.get(rec.object_idx) else {
---+                let Some(obj) = layer.objects.get(object_idx) else {
---                     continue;
---                 };
---                 if !obj.visible {
---@@ -504,8 +616,15 @@ impl Map {
---         }
---     }
--- 
----    fn draw_object_tiles_layer_from_view(&self, view: &LocalView, layer_idx: usize) {
----        let Some(layer) = self.object_layers.get(layer_idx) else {
---+    fn draw_object_tiles_layer_from_coords(
---+        &mut self,
---+        coords: &[crate::spatial::ChunkCoord],
---+        layer_idx: usize,
---+        stamp: u32,
---+    ) {
---+        let gid_lut = &self.gid_lut;
---+        let tilesets = &self.tilesets;
---+        let Some(layer) = self.object_layers.get_mut(layer_idx) else {
---             return;
---         };
---         if !layer.visible {
---@@ -513,23 +632,25 @@ impl Map {
---         }
---         let tint = Color::new(1.0, 1.0, 1.0, layer.opacity.clamp(0.0, 1.0));
--- 
----        let mut drawn = vec![false; layer.objects.len()];
----
----        for LocalChunkView { coord: cc, .. } in &view.chunks {
----            let Some(by_layer) = self.object_buckets.get(cc) else {
---+        for cc in coords {
---+            let Some(global_chunk) = self.index.buckets.get(cc) else {
---                 continue;
---             };
----            let Some(records) = by_layer.get(&layer_idx) else {
---+            let Some(layer_bucket) = global_chunk.layers.get(&layer.bucket_layer) else {
---                 continue;
---             };
---+            let records = &layer_bucket.objects;
--- 
---             for rec in records {
----                if drawn[rec.object_idx] {
---+                let object_idx = rec.id as usize;
---+                if object_idx >= layer.seen_stamp_tiles.len()
---+                    || layer.seen_stamp_tiles[object_idx] == stamp
---+                {
---                     continue;
---                 }
----                drawn[rec.object_idx] = true;
---+                layer.seen_stamp_tiles[object_idx] = stamp;
--- 
----                let Some(obj) = layer.objects.get(rec.object_idx) else {
---+                let Some(obj) = layer.objects.get(object_idx) else {
---                     continue;
---                 };
---                 if !obj.visible {
---@@ -546,7 +667,7 @@ impl Map {
---                 );
--- 
---                 let gid = TileId(gid);
----                let Some((ts, local)) = self.ts_for_gid(gid) else {
---+                let Some((ts, local)) = Self::ts_for_gid_from(gid, gid_lut, tilesets) else {
---                     continue;
---                 };
--- 
---@@ -566,7 +687,7 @@ impl Map {
---                     ts.tile_h as f32
---                 };
--- 
----                let (flag_rotation, flip_x, flip_y, _) = self.params_for_flips(gid, w, h);
---+                let (flag_rotation, flip_x, flip_y, _) = Self::params_for_flips_gid(gid, w, h);
---                 let rotation = obj.rotation.to_radians() + flag_rotation;
--- 
---                 draw_texture_ex(
---@@ -592,4 +713,15 @@ impl Map {
---             }
---         }
---     }
---+
+---    fn visible_coords_for_draw(view_min: Vec2, view_max: Vec2) -> Vec<crate::spatial::ChunkCoord> {
+---        let pad = CHUNK_SIZE as f32;
 --+    fn visible_coords_for_draw(
+--+        &self,
 --+        view_min: Vec2,
 --+        view_max: Vec2,
 --+    ) -> Vec<crate::spatial::ChunkCoord> {
---+        let pad = CHUNK_SIZE as f32;
---+        visible_chunk_coords_rect(
---+            vec2(view_min.x - pad, view_min.y - pad),
---+            vec2(view_max.x + pad, view_max.y + pad),
---+        )
---+    }
--- }
---diff --git a/src/render/cull.rs b/src/render/cull.rs
---index c8f0dca..1d4b87e 100644
------ a/src/render/cull.rs
---+++ b/src/render/cull.rs
---@@ -1,5 +1,5 @@
--- use crate::{
----    spatial::{ChunkCoord, TileRec, CHUNK_SIZE},
---+    spatial::{ChunkCoord, LayerBucket, CHUNK_SIZE},
---     GlobalIndex, LayerIdx,
--- };
--- use macroquad::prelude::*;
---@@ -9,12 +9,34 @@ const CULL_MARGIN_CHUNKS: i32 = 1;
--- 
--- pub struct LocalChunkView<'g> {
---     pub coord: ChunkCoord,
----    pub layers: &'g HashMap<LayerIdx, Vec<TileRec>>,
---+    pub layers: &'g HashMap<LayerIdx, LayerBucket>,
--- }
--- pub struct LocalView<'g> {
---     pub chunks: Vec<LocalChunkView<'g>>,
--- }
--- 
---+pub fn visible_chunk_coords_rect(view_min: Vec2, view_max: Vec2) -> Vec<ChunkCoord> {
---+    let mut cx_min = (view_min.x as i32).div_euclid(CHUNK_SIZE);
---+    let mut cy_min = (view_min.y as i32).div_euclid(CHUNK_SIZE);
---+    let mut cx_max = (view_max.x as i32).div_euclid(CHUNK_SIZE);
---+    let mut cy_max = (view_max.y as i32).div_euclid(CHUNK_SIZE);
---+
---+    if cx_min > cx_max {
---+        std::mem::swap(&mut cx_min, &mut cx_max);
---+    }
---+    if cy_min > cy_max {
---+        std::mem::swap(&mut cy_min, &mut cy_max);
---+    }
---+
---+    let mut coords = Vec::new();
---+    for cy in cy_min..=cy_max {
---+        for cx in cx_min..=cx_max {
---+            coords.push(ChunkCoord { x: cx, y: cy });
---+        }
---+    }
---+    coords
---+}
---+
--- pub fn query_visible<'g>(g: &'g GlobalIndex, cam: &Camera2D) -> LocalView<'g> {
---     let (viewport_width, viewport_height) = match cam.viewport {
---         Some((_, _, w, h)) => (w as f32, h as f32),
---@@ -45,6 +67,7 @@ pub fn query_visible<'g>(g: &'g GlobalIndex, cam: &Camera2D) -> LocalView<'g> {
---             })
---         }
---     }
---+    chunks.sort_by_key(|c| (c.coord.y, c.coord.x));
--- 
---     LocalView { chunks }
--- }
---@@ -77,8 +100,27 @@ pub fn query_visible_rect<'g>(g: &'g GlobalIndex, view_min: Vec2, view_max: Vec2
---             })
---         }
---     }
----
----    //chunks.sort_by_key(|c| (c.coord.x, c.coord.y));
---+    chunks.sort_by_key(|c| (c.coord.y, c.coord.x));
--- 
---     LocalView { chunks }
--- }
---+
---+#[cfg(test)]
---+mod tests {
---+    use super::*;
---+    use crate::spatial::TileId;
---+
---+    #[test]
---+    fn query_visible_rect_returns_chunks_in_stable_order() {
---+        let mut index = GlobalIndex::new();
---+        index.add_tile(TileId(1), 0, vec2(520.0, 520.0)); // (2,2)
---+        index.add_tile(TileId(1), 0, vec2(0.0, 0.0)); // (0,0)
---+        index.add_tile(TileId(1), 0, vec2(260.0, 0.0)); // (1,0)
---+        index.add_tile(TileId(1), 0, vec2(0.0, 260.0)); // (0,1)
---+
---+        let view = query_visible_rect(&index, vec2(0.0, 0.0), vec2(800.0, 800.0));
---+        let coords: Vec<ChunkCoord> = view.chunks.iter().map(|c| c.coord).collect();
---+
---+        assert!(coords.windows(2).all(|w| (w[0].y, w[0].x) <= (w[1].y, w[1].x)));
---+    }
---+}
---diff --git a/src/spatial/index.rs b/src/spatial/index.rs
---index 102539c..94179b7 100644
------ a/src/spatial/index.rs
---+++ b/src/spatial/index.rs
---@@ -68,8 +68,20 @@ pub struct TileRec {
---     pub rel_pos: Vec2,
--- }
--- 
---+#[derive(Debug, Clone)]
---+pub struct ObjectRec {
---+    pub id: u32,
---+    pub rel_pos: Vec2,
---+}
---+
---+#[derive(Debug, Clone, Default)]
---+pub struct LayerBucket {
---+    pub tiles: Vec<TileRec>,
---+    pub objects: Vec<ObjectRec>,
---+}
---+
--- pub struct GlobalChunk {
----    pub layers: HashMap<LayerIdx, Vec<TileRec>>,
---+    pub layers: HashMap<LayerIdx, LayerBucket>,
--- }
--- 
--- impl GlobalChunk {
---@@ -114,7 +126,7 @@ impl GlobalIndex {
---         let cc = world_to_chunk(world);
---         let handle = self.alloc_handle();
---         let bucket = self.buckets.entry(cc).or_insert_with(GlobalChunk::new);
----        let vec = bucket.layers.entry(layer).or_insert_with(Vec::new);
---+        let vec = &mut bucket.layers.entry(layer).or_default().tiles;
--- 
---         let idx = vec.len();
---         vec.push(TileRec {
---@@ -129,4 +141,14 @@ impl GlobalIndex {
---         });
---         handle
---     }
---+
---+    pub fn insert_object(&mut self, layer: LayerIdx, chunk: ChunkCoord, object_rec: ObjectRec) {
---+        let bucket = self.buckets.entry(chunk).or_insert_with(GlobalChunk::new);
---+        bucket
---+            .layers
---+            .entry(layer)
---+            .or_default()
---+            .objects
---+            .push(object_rec);
---+    }
--- }
+--+        let pad = self.cull_padding;
+--         visible_chunk_coords_rect(
+--             vec2(view_min.x - pad, view_min.y - pad),
+--             vec2(view_max.x + pad, view_max.y + pad),
 --diff --git a/ticket_diff.txt b/ticket_diff.txt
---index 6ab2401..12d162e 100644
+--index 64f832e..e69de29 100644
 ----- a/ticket_diff.txt
 --+++ b/ticket_diff.txt
---@@ -1,1219 +0,0 @@
----diff --git a/Cargo.toml b/Cargo.toml
----index 67dcd35..51e6221 100644
------- a/Cargo.toml
----+++ b/Cargo.toml
----@@ -2,9 +2,13 @@
---- name = "macroquad_tiled_clone"
---- version = "0.1.0"
---- edition = "2021"
-----authors = ["Your Name <you@example.com>"]
----+authors = ["B3Z0 <vlad.cotiga75@egmail.com>"]
---- license = "MIT OR Apache-2.0"
---- description = "Minimal Tiled JSON loader & renderer for Macroquad"
----+repository = "https://github.com/B3Z0/macroquad_tiled_clone.git"
----+readme = "README.md"
----+keywords = ["tiled", "macroquad", "tilemap", "gamedev"]
----+categories = ["game-development", "graphics"]
---- 
---- [dependencies]
---- macroquad = "0.4"               # for rendering & textures
+--@@ -1,2007 +0,0 @@
 ---diff --git a/README.md b/README.md
----index 217eb3b..bf04146 100644
+---index 0d8eb47..75aec17 100644
 ------ a/README.md
 ---+++ b/README.md
----@@ -1,22 +1,58 @@
---- # macroquad_tiled_clone
+---@@ -5,23 +5,31 @@ Minimal Tiled JSON loader and renderer for Macroquad.
+--- ## Supports
 --- 
-----Minimal Tiled JSON loader & renderer for Macroquad.
----+Minimal Tiled JSON loader and renderer for Macroquad.
+--- - Tiled JSON maps (orthogonal) with external tilesets (`source` .json)
+----- Tile layers with `data` arrays
+---+- Tile layers (finite) with `data` arrays
+--- - Object layers (`objectgroup`)
+---+- Tile objects (`gid`)
+--- - Multiple tilesets (firstgid mapping)
+--- - Per-layer offsets
+--- - Properties on map/layer/object/tileset/tile
+--- - Tile flip/rotation flags from Tiled GIDs
+--- - Rendering via `draw_texture_ex` with nearest filtering
+--- - Universal draw API: `map.draw(view_min, view_max)` (tiles + tile-objects)
+---+- Optional debug outlines via `set_debug_draw(true)`
 --- 
-----## Roadmap
----+## Supports
+--- ## Not yet
 --- 
------ **Phase 1 (MVP):**  
-----  - Parse basic Tiled JSON (map metadata + single tile layer)  
-----  - Load one Texture2D, compute sprite rects  
-----  - Double‐loop draw with `draw_texture_ex`
----+- Tiled JSON maps (orthogonal) with external tilesets (`source` .json)
----+- Tile layers with `data` arrays
----+- Multiple tilesets (firstgid mapping)
----+- Per-layer offsets
----+- Tile flip/rotation flags from Tiled GIDs
----+- Rendering via `draw_texture_ex` with nearest filtering
---- 
------ **Phase 2:**  
-----  - Named layers, batching, image/object layers
----+## Not yet
---- 
------ **Phase 3+:**  
-----  - Animations, properties, infinite maps, isometric, extensions…
----+- Inline tilesets
----+- Image layers and object layers
----+- Infinite maps (chunked layers)
----+- Isometric or hex maps
----+- Tile properties and animations
----+- Layer visibility/opacity in rendering
---- 
-----## Getting Started
----+## Quickstart
---- 
-----1. Add to your project:  
----+1. Add to your project:
----    ```toml
-----   macroquad_tiled_clone = { git = "https://github.com/yourusername/macroquad_tiled_clone" }
----+   macroquad_tiled_clone = { git = "https://github.com/B3Z0/macroquad_tiled_clone.git" }
----+   ```
----+2. Run the example:
----+   ```bash
----+   cargo run --example basic_map
----+   ```
----+3. Load and draw a map:
----+   ```rust
----+   use macroquad::prelude::*;
----+   use macroquad_tiled_clone::map::Map;
+----- Inline tilesets
+----- Image layers
+--- - Infinite maps (chunked layers)
+---+- Image layers
+---+- Group layers
+---+- Embedded tilesets
+---+- Base64/compressed layer data
+--- - Isometric or hex maps
+--- - Tile animations
+----- Layer visibility/opacity in rendering
 ---+
----+   #[macroquad::main("My Game")]
----+   async fn main() {
----+       let map = Map::load("assets2/map.json")
----+           .await
----+           .expect("Failed to load map");
+---+## Rendering API
 ---+
----+       loop {
----+           clear_background(BLACK);
----+           map.draw_visible_rect(Vec2::ZERO, vec2(screen_width(), screen_height()));
----+           next_frame().await;
----+       }
----+   }
----+   ```
----+
----+## Limitations
----+
----+- Map files must be `.json` exported from Tiled.
----+- Tilesets must be external JSON tilesets with a single atlas image.
----+- Non-tile layers are skipped.
----+- Infinite maps are not supported (no chunked `layers[].chunks`).
----+- Layer `visible` and `opacity` are loaded but not applied at draw time.
----diff --git a/assets2/map.json b/assets2/map.json
----index 0247cab..004956b 100644
------- a/assets2/map.json
----+++ b/assets2/map.json
----@@ -33,6 +33,82 @@
----          "x":0,
----          "y":0
----         }, 
----+        {
----+         "draworder":"topdown",
----+         "id":4,
----+         "name":"Object Layer 1",
----+         "objects":[
----+                {
----+                 "height":0,
----+                 "id":1,
----+                 "name":"Point 1",
----+                 "point":true,
----+                 "rotation":0,
----+                 "type":"",
----+                 "visible":true,
----+                 "width":0,
----+                 "x":286,
----+                 "y":271
----+                }, 
----+                {
----+                 "height":64,
----+                 "id":43,
----+                 "name":"SpawnArea",
----+                 "properties":[
----+                        {
----+                         "name":"spawn",
----+                         "type":"bool",
----+                         "value":true
----+                        }],
----+                 "rotation":0,
----+                 "type":"Trigger",
----+                 "visible":true,
----+                 "width":96,
----+                 "x":64,
----+                 "y":64
----+                }, 
----+                {
----+                 "gid":15,
----+                 "height":47,
----+                 "id":12,
----+                 "name":"",
----+                 "rotation":0,
----+                 "type":"",
----+                 "visible":true,
----+                 "width":59,
----+                 "x":471,
----+                 "y":190
----+                }, 
----+                {
----+                 "gid":15,
----+                 "height":89,
----+                 "id":13,
----+                 "name":"",
----+                 "rotation":0,
----+                 "type":"",
----+                 "visible":true,
----+                 "width":87,
----+                 "x":538,
----+                 "y":392
----+                }, 
----+                {
----+                 "gid":15,
----+                 "height":16,
----+                 "id":14,
----+                 "name":"",
----+                 "rotation":0,
----+                 "type":"",
----+                 "visible":true,
----+                 "width":20,
----+                 "x":447,
----+                 "y":420
----+                }],
----+         "opacity":1,
----+         "type":"objectgroup",
----+         "visible":true,
----+         "x":0,
----+         "y":0
----+        }, 
----         {
----          "data":[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
----             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
----@@ -95,11 +171,11 @@
----          "x":0,
----          "y":0
----         }],
----- "nextlayerid":4,
----- "nextobjectid":1,
----+ "nextlayerid":5,
----+ "nextobjectid":15,
----  "orientation":"orthogonal",
----  "renderorder":"right-down",
----- "tiledversion":"1.10.2",
----+ "tiledversion":"1.11.2",
----  "tileheight":32,
----  "tilesets":[
----         {
----@@ -109,6 +185,10 @@
----         {
----          "firstgid":5,
----          "source":"tileset2.json"
----+        }, 
----+        {
----+         "firstgid":15,
----+         "source":"coin.json"
----         }],
----  "tilewidth":32,
----  "type":"map",
+---+- `draw(view_min, view_max)`: draws tiles + tile-objects, and draws debug outlines when `debug_draw` is enabled.
+---+- `draw_visible_rect(view_min, view_max)`: draws tiles only (advanced/manual flow).
+--- 
+--- ## Quickstart
+--- 
+---@@ -58,4 +66,3 @@ Minimal Tiled JSON loader and renderer for Macroquad.
+--- - Tilesets must be external JSON tilesets with a single atlas image.
+--- - Unsupported layer kinds are skipped.
+--- - Infinite maps are not supported (no chunked `layers[].chunks`).
+----- Layer `visible` and `opacity` are loaded but not applied at draw time.
 ---diff --git a/examples/basic_map.rs b/examples/basic_map.rs
----index 54935dd..db1feca 100644
+---index db1feca..41a1859 100644
 ------ a/examples/basic_map.rs
 ---+++ b/examples/basic_map.rs
----@@ -22,7 +22,7 @@ async fn main() {
----     loop {
----         clear_background(BLACK);
+---@@ -13,7 +13,7 @@ fn window_conf() -> Conf {
 --- 
-----        map.draw_visible_rect(Vec2::ZERO, screen_size);
----+        map.draw(Vec2::ZERO, screen_size);
+--- #[macroquad::main(window_conf)] // ❷ pass the window config function here
+--- async fn main() {
+----    let map = Map::load("assets2/map.json")
+---+    let mut map = Map::load("assets2/map.json")
+---         .await
+---         .expect("Failed to load map");
 --- 
----         // Draw the frame rate in the top-left corner
----         draw_text(
----diff --git a/src/ir_map.rs b/src/ir_map.rs
----index 45c3763..8abab3b 100644
------- a/src/ir_map.rs
----+++ b/src/ir_map.rs
----@@ -1,10 +1,98 @@
---- // src/ir.rs
---- use macroquad::prelude::*;
----+use std::collections::HashMap;
----+
----+#[derive(Clone, Debug, PartialEq)]
----+pub enum PropertyValue {
----+    Bool(bool),
----+    I32(i32),
----+    F32(f32),
----+    String(String),
----+}
----+
----+#[derive(Clone, Debug, Default, PartialEq)]
----+pub struct Properties(HashMap<String, PropertyValue>);
----+
----+impl Properties {
----+    pub fn new() -> Self {
----+        Self::default()
----+    }
----+
----+    pub fn insert(&mut self, key: String, value: PropertyValue) {
----+        self.0.insert(key, value);
----+    }
----+
----+    pub fn get(&self, key: &str) -> Option<&PropertyValue> {
----+        self.0.get(key)
----+    }
----+
----+    pub fn get_bool(&self, key: &str) -> Option<bool> {
----+        match self.0.get(key) {
----+            Some(PropertyValue::Bool(v)) => Some(*v),
----+            _ => None,
----+        }
----+    }
----+
----+    pub fn get_i32(&self, key: &str) -> Option<i32> {
----+        match self.0.get(key) {
----+            Some(PropertyValue::I32(v)) => Some(*v),
----+            _ => None,
----+        }
----+    }
----+
----+    pub fn get_f32(&self, key: &str) -> Option<f32> {
----+        match self.0.get(key) {
----+            Some(PropertyValue::F32(v)) => Some(*v),
----+            _ => None,
----+        }
----+    }
----+
----+    pub fn get_string(&self, key: &str) -> Option<&str> {
----+        match self.0.get(key) {
----+            Some(PropertyValue::String(v)) => Some(v.as_str()),
----+            _ => None,
----+        }
----+    }
----+}
----+
----+#[derive(Clone, Debug, PartialEq)]
----+pub enum IrObjectShape {
----+    Rectangle,
----+    Point,
----+    Polygon(Vec<Vec2>),
----+    Polyline(Vec<Vec2>),
----+    Tile {
----+        gid: u32,
----+    },
----+}
----+
----+#[derive(Clone, Debug, PartialEq)]
----+pub struct IrObject {
----+    pub id: u32,
----+    pub name: String,
----+    pub class_name: String,
----+    pub x: f32,
----+    pub y: f32,
----+    pub width: f32,
----+    pub height: f32,
----+    pub rotation: f32,
----+    pub visible: bool,
----+    pub shape: IrObjectShape,
----+    pub properties: Properties,
----+}
----+
----+#[derive(Clone, Debug, PartialEq)]
----+pub struct IrTileMetadata {
----+    pub id: u32,
----+    pub properties: Properties,
----+    pub objects: Vec<IrObject>,
----+}
+---diff --git a/examples/objects.rs b/examples/objects.rs
+---index cd1ed75..9002986 100644
+------ a/examples/objects.rs
+---+++ b/examples/objects.rs
+---@@ -12,7 +12,7 @@ fn window_conf() -> Conf {
 --- 
---- /// Canonical, format-agnostic map.
---- pub struct IrMap {
----     pub tile_w: u32,
----     pub tile_h: u32,
----+    pub properties: Properties,
----     pub tilesets: Vec<IrTileset>, // must be sorted by first_gid
----     pub layers: Vec<IrLayer>,     // draw order: array order
---- }
----@@ -20,6 +108,8 @@ pub enum IrTileset {
----         columns: u32,
----         spacing: u32, // 0 if not used
----         margin: u32,  // 0 if not used
----+        properties: Properties,
----+        tiles: Vec<IrTileMetadata>,
----     },
----     // (later) ImagePerTile { first_gid, tiles: Vec<IrTileImage> },
---- }
----@@ -30,6 +120,10 @@ pub enum IrLayerKind {
----         height: usize,
----         data: Vec<u32>, // raw GIDs (including flip flags ok)
----     },
----+    Objects {
----+        objects: Vec<IrObject>,
----+    },
----+    Unsupported,
----     // (later) Objects { ... }, Image { ... }
+--- #[macroquad::main(window_conf)]
+--- async fn main() {
+----    let map = Map::load("assets2/map.json")
+---+    let mut map = Map::load("assets2/map.json")
+---         .await
+---         .expect("Failed to load map");
+--- 
+---diff --git a/src.zip b/src.zip
+---index 60aeee9..c33c0f4 100644
+---Binary files a/src.zip and b/src.zip differ
+---diff --git a/src/map.rs b/src/map.rs
+---index f2209f0..1a59259 100644
+------ a/src/map.rs
+---+++ b/src/map.rs
+---@@ -2,7 +2,7 @@ use crate::ir_map::*;
+--- use crate::loader::json_loader::*;
+--- use crate::render::*;
+--- use crate::{
+----    spatial::{rel, world_to_chunk, ChunkCoord, CHUNK_SIZE},
+---+    spatial::{rel, world_to_chunk, CHUNK_SIZE},
+---     GlobalIndex, LayerIdx, TileId,
+--- };
+--- use anyhow::Context;
+---@@ -10,6 +10,8 @@ use macroquad::prelude::*;
+--- use std::collections::HashMap;
+--- use std::path::Path;
+--- 
+---+pub type LayerId = u32;
+---+
+--- pub struct TilesetInfo {
+---     pub first_gid: u32,
+---     pub tilecount: u32,
+---@@ -22,18 +24,16 @@ pub struct TilesetInfo {
 --- }
 --- 
----@@ -38,5 +132,6 @@ pub struct IrLayer {
+--- pub struct ObjectLayer {
+---+    pub id: LayerId,
+---     pub name: String,
 ---     pub visible: bool,
 ---     pub opacity: f32,
----     pub offset: Vec2, // world offset for this layer
----+    pub properties: Properties,
----     pub kind: IrLayerKind,
---- }
----diff --git a/src/loader/json_loader.rs b/src/loader/json_loader.rs
----index c2cff0c..9b5c064 100644
------- a/src/loader/json_loader.rs
----+++ b/src/loader/json_loader.rs
----@@ -3,12 +3,16 @@ use crate::ir_map::*;
---- use anyhow::Context;
---- use macroquad::prelude::*;
---- use serde::Deserialize;
----+use serde_json::Value as JsonValue;
---- use std::path::{Path, PathBuf};
---- 
---- #[derive(Deserialize)]
---- struct JsonLayer {
----+    #[serde(default)]
----     data: Vec<u32>,
----+    #[serde(default)]
----     width: usize,
----+    #[serde(default)]
----     height: usize,
----     #[serde(default = "default_true")]
----     visible: bool,
----@@ -22,6 +26,10 @@ struct JsonLayer {
----     name: String,
----     #[serde(rename = "type")]
----     kind: Option<String>, // "tilelayer" expected here
----+    #[serde(default)]
----+    properties: Vec<JsonProperty>,
----+    #[serde(default)]
----+    objects: Vec<JsonObject>,
+---     pub offset: Vec2,
+---     pub properties: Properties,
+---     pub objects: Vec<IrObject>,
+----}
+----
+----#[derive(Clone, Copy)]
+----struct ObjectRec {
+----    object_idx: usize,
+----    rel_pos: Vec2,
+---+    bucket_layer: LayerIdx,
+---+    seen_stamp_tiles: Vec<u32>,
+---+    seen_stamp_debug: Vec<u32>,
 --- }
 --- 
---- fn default_true() -> bool {
----@@ -43,6 +51,8 @@ struct JsonMap {
----     tileheight: u32,
----     layers: Vec<JsonLayer>,
----     tilesets: Vec<JsonTilesetRef>,
----+    #[serde(default)]
----+    properties: Vec<JsonProperty>,
+--- #[derive(Clone, Copy)]
+---@@ -44,20 +44,22 @@ struct TileLayerDrawInfo {
 --- }
 --- 
---- #[derive(Deserialize)]
----@@ -56,6 +66,147 @@ struct ExternalTileset {
----     spacing: u32,
----     #[serde(default)]
----     margin: u32,
----+    #[serde(default)]
----+    properties: Vec<JsonProperty>,
----+    #[serde(default)]
----+    tiles: Vec<JsonTile>,
----+}
+--- #[derive(Clone, Copy)]
+----enum DrawLayer {
+---+enum LayerKindInfo {
+---     Tiles(usize),
+---     Objects(usize),
+---+    Unsupported,
+--- }
+--- 
+--- pub struct Map {
+---     pub index: GlobalIndex,
+---     pub tilesets: Vec<TilesetInfo>,
+---     object_layers: Vec<ObjectLayer>,
+----    object_buckets: HashMap<ChunkCoord, HashMap<usize, Vec<ObjectRec>>>,
+---     debug_draw: bool,
+---+    frame_stamp: u32,
+---     gid_lut: Vec<u16>, //lookup table for tile GIDs to tileset indices
+---     tile_layers: Vec<TileLayerDrawInfo>,
+----    draw_order: Vec<DrawLayer>,
+---+    draw_order: Vec<LayerId>,
+---+    layer_kind_by_id: HashMap<LayerId, LayerKindInfo>,
+---     pub tile_w: u32,
+---     pub tile_h: u32,
+--- }
+---@@ -125,80 +127,85 @@ impl Map {
+--- 
+---         let mut index = GlobalIndex::new();
+---         let mut object_layers = Vec::new();
+----        let mut object_buckets: HashMap<ChunkCoord, HashMap<usize, Vec<ObjectRec>>> =
+----            HashMap::new();
+---         let mut tile_layers: Vec<TileLayerDrawInfo> = Vec::new();
+----        let mut draw_order: Vec<DrawLayer> = Vec::new();
+---+        let mut draw_order: Vec<LayerId> = Vec::new();
+---+        let mut layer_kind_by_id: HashMap<LayerId, LayerKindInfo> = HashMap::new();
+--- 
+---         for (lz, layer) in ir.layers.iter().enumerate() {
+----            if let IrLayerKind::Objects { objects } = &layer.kind {
+---+            let stable_id = lz as LayerId;
+---+            draw_order.push(stable_id);
 ---+
----+#[derive(Deserialize)]
----+struct JsonProperty {
----+    name: String,
----+    #[serde(default, rename = "type")]
----+    kind: Option<String>,
----+    value: JsonValue,
----+}
+---+            match &layer.kind {
+---+                IrLayerKind::Objects { objects } => {
+---                 let layer_idx = object_layers.len();
+---+                let bucket_layer = lz as LayerIdx;
+---                 object_layers.push(ObjectLayer {
+---+                    id: stable_id,
+---                     name: layer.name.clone(),
+---                     visible: layer.visible,
+---                     opacity: layer.opacity,
+---                     offset: layer.offset,
+---                     properties: layer.properties.clone(),
+---                     objects: objects.clone(),
+---+                    bucket_layer,
+---+                    seen_stamp_tiles: vec![0; objects.len()],
+---+                    seen_stamp_debug: vec![0; objects.len()],
+---                 });
+--- 
+----                for (object_idx, obj) in objects.iter().enumerate() {
+----                    let world = vec2(obj.x, obj.y) + layer.offset;
+----                    let (min, max) = Self::object_aabb_world(obj, layer.offset);
+----                    let chunk_min = world_to_chunk(min);
+----                    let chunk_max = world_to_chunk(max);
+----
+----                    for cy in chunk_min.y..=chunk_max.y {
+----                        for cx in chunk_min.x..=chunk_max.x {
+----                            let cc = ChunkCoord { x: cx, y: cy };
+----                            let by_layer = object_buckets.entry(cc).or_default();
+----                            by_layer.entry(layer_idx).or_default().push(ObjectRec {
+----                                object_idx,
+----                                rel_pos: rel(world),
+----                            });
+---+                    for (object_idx, obj) in objects.iter().enumerate() {
+---+                        let world = vec2(obj.x, obj.y) + layer.offset;
+---+                        let (min, max) = Self::object_aabb_world(obj, layer.offset);
+---+                        let chunk_min = world_to_chunk(min);
+---+                        let chunk_max = world_to_chunk(max);
 ---+
----+#[derive(Deserialize)]
----+struct JsonObject {
----+    #[serde(default)]
----+    id: u32,
----+    #[serde(default)]
----+    name: String,
----+    #[serde(default, rename = "type")]
----+    kind: String,
----+    #[serde(default)]
----+    class: String,
----+    #[serde(default)]
----+    x: f32,
----+    #[serde(default)]
----+    y: f32,
----+    #[serde(default)]
----+    width: f32,
----+    #[serde(default)]
----+    height: f32,
----+    #[serde(default)]
----+    rotation: f32,
----+    #[serde(default = "default_true")]
----+    visible: bool,
----+    #[serde(default)]
----+    point: bool,
----+    #[serde(default)]
----+    polygon: Vec<JsonObjectPoint>,
----+    #[serde(default)]
----+    polyline: Vec<JsonObjectPoint>,
----+    #[serde(default)]
----+    gid: Option<u32>,
----+    #[serde(default)]
----+    properties: Vec<JsonProperty>,
----+}
----+
----+#[derive(Deserialize)]
----+struct JsonObjectPoint {
----+    x: f32,
----+    y: f32,
----+}
----+
----+#[derive(Deserialize, Default)]
----+struct JsonObjectGroup {
----+    #[serde(default)]
----+    objects: Vec<JsonObject>,
----+}
----+
----+#[derive(Deserialize)]
----+struct JsonTile {
----+    id: u32,
----+    #[serde(default)]
----+    properties: Vec<JsonProperty>,
----+    #[serde(default)]
----+    objectgroup: JsonObjectGroup,
----+}
----+
----+fn json_property_to_ir(prop: JsonProperty) -> Option<(String, PropertyValue)> {
----+    let value = match prop.kind.as_deref() {
----+        Some("bool") => prop.value.as_bool().map(PropertyValue::Bool),
----+        Some("int") | Some("object") => prop
----+            .value
----+            .as_i64()
----+            .and_then(|n| i32::try_from(n).ok())
----+            .map(PropertyValue::I32),
----+        Some("float") => prop.value.as_f64().map(|n| PropertyValue::F32(n as f32)),
----+        Some("string") | Some("file") | Some("color") | Some("class") => {
----+            prop.value.as_str().map(|s| PropertyValue::String(s.to_owned()))
+---+                        for cy in chunk_min.y..=chunk_max.y {
+---+                            for cx in chunk_min.x..=chunk_max.x {
+---+                                let cc = crate::spatial::ChunkCoord { x: cx, y: cy };
+---+                                index.insert_object(
+---+                                    bucket_layer,
+---+                                    cc,
+---+                                    crate::spatial::ObjectRec {
+---+                                        id: object_idx as u32,
+---+                                        rel_pos: rel(world),
+---+                                    },
+---+                                );
+---+                            }
+---                         }
+---                     }
+----                }
+----                draw_order.push(DrawLayer::Objects(layer_idx));
+----                continue;
+----            }
+----
+----            let lid = lz as LayerIdx;
+----            let mut inserted_any = false;
+--- 
+----            let (width, data) = match &layer.kind {
+---+                    layer_kind_by_id.insert(stable_id, LayerKindInfo::Objects(layer_idx));
+---+                }
+---                 IrLayerKind::Tiles {
+---                     width,
+---                     height: _,
+---                     data,
+----                } => (width, data),
+----                _ => continue,
+----            };
+---+                } => {
+---+                    let tile_layer_idx = tile_layers.len();
+---+                    let lid = lz as LayerIdx;
+--- 
+----            let tw = ir.tile_w as f32;
+----            let th = ir.tile_h as f32;
+---+                    let tw = ir.tile_w as f32;
+---+                    let th = ir.tile_h as f32;
+---+                    for (idx, gid) in data.iter().enumerate() {
+---+                        if *gid == 0 {
+---+                            continue;
+---+                        }
+---+                        let col = idx % *width;
+---+                        let row = idx / *width;
+---+                        let mut world = vec2(col as f32 * tw, row as f32 * th);
+---+                        world += layer.offset;
+---+                        index.add_tile(TileId(*gid), lid, world);
+---+                    }
+--- 
+----            for (idx, gid) in data.iter().enumerate() {
+----                if *gid == 0 {
+----                    continue;
+---+                    tile_layers.push(TileLayerDrawInfo {
+---+                        layer_id: lid,
+---+                        visible: layer.visible,
+---+                        opacity: layer.opacity.clamp(0.0, 1.0),
+---+                    });
+---+                    layer_kind_by_id.insert(stable_id, LayerKindInfo::Tiles(tile_layer_idx));
+---+                }
+---+                IrLayerKind::Unsupported => {
+---+                    layer_kind_by_id.insert(stable_id, LayerKindInfo::Unsupported);
+---                 }
+----
+----                let col = idx % *width;
+----                let row = idx / *width;
+----                let mut world = vec2(col as f32 * tw, row as f32 * th);
+----                world += layer.offset;
+----
+----                index.add_tile(TileId(*gid), lid, world);
+----                inserted_any = true;
+----            }
+----
+----            if inserted_any {
+----                tile_layers.push(TileLayerDrawInfo {
+----                    layer_id: lid,
+----                    visible: layer.visible,
+----                    opacity: layer.opacity.clamp(0.0, 1.0),
+----                });
+----                draw_order.push(DrawLayer::Tiles(tile_layers.len() - 1));
+---             }
+---         }
+--- 
+---@@ -206,11 +213,12 @@ impl Map {
+---             index,
+---             tilesets,
+---             object_layers,
+----            object_buckets,
+---             debug_draw: false,
+---+            frame_stamp: 0,
+---             gid_lut,
+---             tile_layers,
+---             draw_order,
+---+            layer_kind_by_id,
+---             tile_w: ir.tile_w,
+---             tile_h: ir.tile_h,
+---         })
+---@@ -258,6 +266,19 @@ impl Map {
+---         }
+---     }
+--- 
+---+    fn next_stamp(frame_stamp: &mut u32, object_layers: &mut [ObjectLayer]) -> u32 {
+---+        if *frame_stamp == u32::MAX {
+---+            for layer in object_layers {
+---+                layer.seen_stamp_tiles.fill(0);
+---+                layer.seen_stamp_debug.fill(0);
+---+            }
+---+            *frame_stamp = 1;
+---+            return 1;
 ---+        }
----+        _ => {
----+            if let Some(v) = prop.value.as_bool() {
----+                Some(PropertyValue::Bool(v))
----+            } else if let Some(v) = prop.value.as_i64().and_then(|n| i32::try_from(n).ok()) {
----+                Some(PropertyValue::I32(v))
----+            } else if let Some(v) = prop.value.as_f64() {
----+                Some(PropertyValue::F32(v as f32))
----+            } else {
----+                prop.value
----+                    .as_str()
----+                    .map(|s| PropertyValue::String(s.to_owned()))
+---+        *frame_stamp += 1;
+---+        *frame_stamp
+---+    }
+---+
+---     pub fn object_layers(&self) -> &[ObjectLayer] {
+---         &self.object_layers
+---     }
+---@@ -269,8 +290,7 @@ impl Map {
+---     }
+--- 
+---     #[inline]
+----    fn params_for_flips(
+----        &self,
+---+    fn params_for_flips_gid(
+---         gid: TileId,
+---         tile_w: f32,
+---         tile_h: f32,
+---@@ -295,39 +315,66 @@ impl Map {
+---     }
+--- 
+---     #[inline]
+----    fn ts_for_gid(&self, gid: TileId) -> Option<(&TilesetInfo, u32)> {
+---+    fn params_for_flips(
+---+        &self,
+---+        gid: TileId,
+---+        tile_w: f32,
+---+        tile_h: f32,
+---+    ) -> (f32, bool, bool, Option<Vec2>) {
+---+        Self::params_for_flips_gid(gid, tile_w, tile_h)
+---+    }
+---+
+---+    #[inline]
+---+    fn ts_for_gid_from<'a>(
+---+        gid: TileId,
+---+        gid_lut: &'a [u16],
+---+        tilesets: &'a [TilesetInfo],
+---+    ) -> Option<(&'a TilesetInfo, u32)> {
+---         let clean = gid.clean() as usize;
+----        if clean >= self.gid_lut.len() {
+---+        if clean >= gid_lut.len() {
+---             return None;
+---         }
+--- 
+----        let idx = self.gid_lut[clean];
+---+        let idx = gid_lut[clean];
+---         if idx == u16::MAX {
+---             return None;
+---         }
+--- 
+----        let ts = &self.tilesets[idx as usize];
+---+        let ts = &tilesets[idx as usize];
+---         Some((ts, gid.clean() - ts.first_gid))
+---     }
+--- 
+---+    #[inline]
+---+    fn ts_for_gid(&self, gid: TileId) -> Option<(&TilesetInfo, u32)> {
+---+        Self::ts_for_gid_from(gid, &self.gid_lut, &self.tilesets)
+---+    }
+---+
+---     pub fn draw_visible_rect(&self, view_min: Vec2, view_max: Vec2) {
+---         let view = query_visible_rect(&self.index, view_min, view_max);
+---         self.draw_chunks(view);
+---     }
+--- 
+----    pub fn draw(&self, view_min: Vec2, view_max: Vec2) {
+----        let view = query_visible_rect(&self.index, view_min, view_max);
+----        for entry in &self.draw_order {
+----            match entry {
+----                DrawLayer::Tiles(tile_layer_idx) => {
+----                    self.draw_tile_layer_from_view(&view, *tile_layer_idx);
+---+    pub fn draw(&mut self, view_min: Vec2, view_max: Vec2) {
+---+        let coords = Self::visible_coords_for_draw(view_min, view_max);
+---+        let draw_order = self.draw_order.clone();
+---+        for layer_id in &draw_order {
+---+            let Some(kind) = self.layer_kind_by_id.get(layer_id).copied() else {
+---+                continue;
+---+            };
+---+            match kind {
+---+                LayerKindInfo::Tiles(tile_layer_idx) => {
+---+                    self.draw_tile_layer_from_coords(&coords, tile_layer_idx);
+---                 }
+----                DrawLayer::Objects(layer_idx) => {
+----                    self.draw_object_tiles_layer_from_view(&view, *layer_idx);
+---+                LayerKindInfo::Objects(object_layer_idx) => {
+---+                    let stamp = Self::next_stamp(&mut self.frame_stamp, &mut self.object_layers);
+---+                    self.draw_object_tiles_layer_from_coords(&coords, object_layer_idx, stamp);
+---                     if self.debug_draw {
+----                        self.draw_object_debug_layer_from_view(&view, *layer_idx);
+---+                        let stamp =
+---+                            Self::next_stamp(&mut self.frame_stamp, &mut self.object_layers);
+---+                        self.draw_object_debug_layer_from_coords(&coords, object_layer_idx, stamp);
+---                     }
+---                 }
+---+                LayerKindInfo::Unsupported => {}
+---             }
+---         }
+---     }
+---@@ -336,14 +383,14 @@ impl Map {
+---         self.debug_draw = enabled;
+---     }
+--- 
+----    pub fn draw_objects_debug(&self, view_min: Vec2, view_max: Vec2) {
+----        let view = query_visible_rect(&self.index, view_min, view_max);
+----        self.draw_chunk_objects_debug(view);
+---+    pub fn draw_objects_debug(&mut self, view_min: Vec2, view_max: Vec2) {
+---+        let coords = Self::visible_coords_for_draw(view_min, view_max);
+---+        self.draw_chunk_objects_debug_coords(&coords);
+---     }
+--- 
+----    pub fn draw_objects_tiles(&self, view_min: Vec2, view_max: Vec2) {
+----        let view = query_visible_rect(&self.index, view_min, view_max);
+----        self.draw_chunk_objects_tiles(view);
+---+    pub fn draw_objects_tiles(&mut self, view_min: Vec2, view_max: Vec2) {
+---+        let coords = Self::visible_coords_for_draw(view_min, view_max);
+---+        self.draw_chunk_objects_tiles_coords(&coords);
+---     }
+--- 
+---     fn draw_chunks(&self, view: LocalView) {
+---@@ -362,8 +409,8 @@ impl Map {
+---         let tint = Color::new(1.0, 1.0, 1.0, layer.opacity);
+--- 
+---         for LocalChunkView { coord: cc, layers } in &view.chunks {
+----            if let Some(vec) = layers.get(&layer.layer_id) {
+----                for rec in vec {
+---+            if let Some(bucket) = layers.get(&layer.layer_id) {
+---+                for rec in &bucket.tiles {
+---                     let (ts, local) = match self.ts_for_gid(rec.id) {
+---                         Some(x) => x,
+---                         None => continue,
+---@@ -404,20 +451,83 @@ impl Map {
+---         }
+---     }
+--- 
+----    fn draw_chunk_objects_debug(&self, view: LocalView) {
+---+    fn draw_tile_layer_from_coords(&self, coords: &[crate::spatial::ChunkCoord], tile_layer_idx: usize) {
+---+        let Some(layer) = self.tile_layers.get(tile_layer_idx) else {
+---+            return;
+---+        };
+---+        if !layer.visible {
+---+            return;
+---+        }
+---+        let tint = Color::new(1.0, 1.0, 1.0, layer.opacity);
+---+
+---+        for cc in coords {
+---+            let Some(global_chunk) = self.index.buckets.get(cc) else {
+---+                continue;
+---+            };
+---+            let Some(bucket) = global_chunk.layers.get(&layer.layer_id) else {
+---+                continue;
+---+            };
+---+            for rec in &bucket.tiles {
+---+                let (ts, local) = match self.ts_for_gid(rec.id) {
+---+                    Some(x) => x,
+---+                    None => continue,
+---+                };
+---+
+---+                let col = local % ts.cols;
+---+                let row = local / ts.cols;
+---+                let sx = ts.margin + col * (ts.tile_w + ts.spacing);
+---+                let sy = ts.margin + row * (ts.tile_h + ts.spacing);
+---+
+---+                let x = ((cc.x * CHUNK_SIZE) as f32 + rec.rel_pos.x).round();
+---+                let y = ((cc.y * CHUNK_SIZE) as f32 + rec.rel_pos.y).round();
+---+
+---+                let (rotation, flip_x, flip_y, pivot) =
+---+                    self.params_for_flips(rec.id, ts.tile_w as f32, ts.tile_h as f32);
+---+
+---+                draw_texture_ex(
+---+                    &ts.tex,
+---+                    x,
+---+                    y,
+---+                    tint,
+---+                    DrawTextureParams {
+---+                        source: Some(Rect::new(
+---+                            sx as f32,
+---+                            sy as f32,
+---+                            ts.tile_w as f32,
+---+                            ts.tile_h as f32,
+---+                        )),
+---+                        rotation,
+---+                        flip_x,
+---+                        flip_y,
+---+                        pivot,
+---+                        ..Default::default()
+---+                    },
+---+                );
 ---+            }
 ---+        }
----+    }?;
----+
----+    Some((prop.name, value))
----+}
----+
----+fn properties_from_json(props: Vec<JsonProperty>) -> Properties {
----+    let mut out = Properties::new();
----+    for p in props {
----+        if let Some((name, value)) = json_property_to_ir(p) {
----+            out.insert(name, value);
----+        }
 ---+    }
----+    out
----+}
 ---+
----+fn object_to_ir(obj: JsonObject) -> IrObject {
----+    let shape = if let Some(gid) = obj.gid {
----+        IrObjectShape::Tile { gid }
----+    } else if obj.point {
----+        IrObjectShape::Point
----+    } else if !obj.polygon.is_empty() {
----+        IrObjectShape::Polygon(obj.polygon.into_iter().map(|p| vec2(p.x, p.y)).collect())
----+    } else if !obj.polyline.is_empty() {
----+        IrObjectShape::Polyline(obj.polyline.into_iter().map(|p| vec2(p.x, p.y)).collect())
----+    } else {
----+        IrObjectShape::Rectangle
----+    };
+---+    fn draw_chunk_objects_debug_coords(&mut self, coords: &[crate::spatial::ChunkCoord]) {
+---+        let stamp = Self::next_stamp(&mut self.frame_stamp, &mut self.object_layers);
+---         for layer_idx in 0..self.object_layers.len() {
+----            self.draw_object_debug_layer_from_view(&view, layer_idx);
+---+            self.draw_object_debug_layer_from_coords(coords, layer_idx, stamp);
+---         }
+---     }
+--- 
+----    fn draw_chunk_objects_tiles(&self, view: LocalView) {
+---+    fn draw_chunk_objects_tiles_coords(&mut self, coords: &[crate::spatial::ChunkCoord]) {
+---+        let stamp = Self::next_stamp(&mut self.frame_stamp, &mut self.object_layers);
+---         for layer_idx in 0..self.object_layers.len() {
+----            self.draw_object_tiles_layer_from_view(&view, layer_idx);
+---+            self.draw_object_tiles_layer_from_coords(coords, layer_idx, stamp);
+---         }
+---     }
+--- 
+----    fn draw_object_debug_layer_from_view(&self, view: &LocalView, layer_idx: usize) {
+----        let Some(layer) = self.object_layers.get(layer_idx) else {
+---+    fn draw_object_debug_layer_from_coords(
+---+        &mut self,
+---+        coords: &[crate::spatial::ChunkCoord],
+---+        layer_idx: usize,
+---+        stamp: u32,
+---+    ) {
+---+        let Some(layer) = self.object_layers.get_mut(layer_idx) else {
+---             return;
+---         };
+---         if !layer.visible {
+---@@ -430,23 +540,25 @@ impl Map {
+---         let polyline_color = Color::new(PINK.r, PINK.g, PINK.b, alpha);
+---         let tile_color = Color::new(MAGENTA.r, MAGENTA.g, MAGENTA.b, alpha);
+--- 
+----        let mut drawn = vec![false; layer.objects.len()];
+----
+----        for LocalChunkView { coord: cc, .. } in &view.chunks {
+----            let Some(by_layer) = self.object_buckets.get(cc) else {
+---+        for cc in coords {
+---+            let Some(global_chunk) = self.index.buckets.get(cc) else {
+---                 continue;
+---             };
+----            let Some(records) = by_layer.get(&layer_idx) else {
+---+            let Some(layer_bucket) = global_chunk.layers.get(&layer.bucket_layer) else {
+---                 continue;
+---             };
+---+            let records = &layer_bucket.objects;
+--- 
+---             for rec in records {
+----                if drawn[rec.object_idx] {
+---+                let object_idx = rec.id as usize;
+---+                if object_idx >= layer.seen_stamp_debug.len()
+---+                    || layer.seen_stamp_debug[object_idx] == stamp
+---+                {
+---                     continue;
+---                 }
+----                drawn[rec.object_idx] = true;
+---+                layer.seen_stamp_debug[object_idx] = stamp;
+--- 
+----                let Some(obj) = layer.objects.get(rec.object_idx) else {
+---+                let Some(obj) = layer.objects.get(object_idx) else {
+---                     continue;
+---                 };
+---                 if !obj.visible {
+---@@ -504,8 +616,15 @@ impl Map {
+---         }
+---     }
+--- 
+----    fn draw_object_tiles_layer_from_view(&self, view: &LocalView, layer_idx: usize) {
+----        let Some(layer) = self.object_layers.get(layer_idx) else {
+---+    fn draw_object_tiles_layer_from_coords(
+---+        &mut self,
+---+        coords: &[crate::spatial::ChunkCoord],
+---+        layer_idx: usize,
+---+        stamp: u32,
+---+    ) {
+---+        let gid_lut = &self.gid_lut;
+---+        let tilesets = &self.tilesets;
+---+        let Some(layer) = self.object_layers.get_mut(layer_idx) else {
+---             return;
+---         };
+---         if !layer.visible {
+---@@ -513,23 +632,25 @@ impl Map {
+---         }
+---         let tint = Color::new(1.0, 1.0, 1.0, layer.opacity.clamp(0.0, 1.0));
+--- 
+----        let mut drawn = vec![false; layer.objects.len()];
+----
+----        for LocalChunkView { coord: cc, .. } in &view.chunks {
+----            let Some(by_layer) = self.object_buckets.get(cc) else {
+---+        for cc in coords {
+---+            let Some(global_chunk) = self.index.buckets.get(cc) else {
+---                 continue;
+---             };
+----            let Some(records) = by_layer.get(&layer_idx) else {
+---+            let Some(layer_bucket) = global_chunk.layers.get(&layer.bucket_layer) else {
+---                 continue;
+---             };
+---+            let records = &layer_bucket.objects;
+--- 
+---             for rec in records {
+----                if drawn[rec.object_idx] {
+---+                let object_idx = rec.id as usize;
+---+                if object_idx >= layer.seen_stamp_tiles.len()
+---+                    || layer.seen_stamp_tiles[object_idx] == stamp
+---+                {
+---                     continue;
+---                 }
+----                drawn[rec.object_idx] = true;
+---+                layer.seen_stamp_tiles[object_idx] = stamp;
+--- 
+----                let Some(obj) = layer.objects.get(rec.object_idx) else {
+---+                let Some(obj) = layer.objects.get(object_idx) else {
+---                     continue;
+---                 };
+---                 if !obj.visible {
+---@@ -546,7 +667,7 @@ impl Map {
+---                 );
+--- 
+---                 let gid = TileId(gid);
+----                let Some((ts, local)) = self.ts_for_gid(gid) else {
+---+                let Some((ts, local)) = Self::ts_for_gid_from(gid, gid_lut, tilesets) else {
+---                     continue;
+---                 };
+--- 
+---@@ -566,7 +687,7 @@ impl Map {
+---                     ts.tile_h as f32
+---                 };
+--- 
+----                let (flag_rotation, flip_x, flip_y, _) = self.params_for_flips(gid, w, h);
+---+                let (flag_rotation, flip_x, flip_y, _) = Self::params_for_flips_gid(gid, w, h);
+---                 let rotation = obj.rotation.to_radians() + flag_rotation;
+--- 
+---                 draw_texture_ex(
+---@@ -592,4 +713,15 @@ impl Map {
+---             }
+---         }
+---     }
 ---+
----+    let class_name = if !obj.class.is_empty() {
----+        obj.class
----+    } else {
----+        obj.kind
----+    };
----+
----+    IrObject {
----+        id: obj.id,
----+        name: obj.name,
----+        class_name,
----+        x: obj.x,
----+        y: obj.y,
----+        width: obj.width,
----+        height: obj.height,
----+        rotation: obj.rotation,
----+        visible: obj.visible,
----+        shape,
----+        properties: properties_from_json(obj.properties),
+---+    fn visible_coords_for_draw(
+---+        view_min: Vec2,
+---+        view_max: Vec2,
+---+    ) -> Vec<crate::spatial::ChunkCoord> {
+---+        let pad = CHUNK_SIZE as f32;
+---+        visible_chunk_coords_rect(
+---+            vec2(view_min.x - pad, view_min.y - pad),
+---+            vec2(view_max.x + pad, view_max.y + pad),
+---+        )
 ---+    }
 --- }
+---diff --git a/src/render/cull.rs b/src/render/cull.rs
+---index c8f0dca..1d4b87e 100644
+------ a/src/render/cull.rs
+---+++ b/src/render/cull.rs
+---@@ -1,5 +1,5 @@
+--- use crate::{
+----    spatial::{ChunkCoord, TileRec, CHUNK_SIZE},
+---+    spatial::{ChunkCoord, LayerBucket, CHUNK_SIZE},
+---     GlobalIndex, LayerIdx,
+--- };
+--- use macroquad::prelude::*;
+---@@ -9,12 +9,34 @@ const CULL_MARGIN_CHUNKS: i32 = 1;
 --- 
---- pub fn decode_map_file_to_ir(path: &str) -> anyhow::Result<(IrMap, PathBuf)> {
----@@ -95,6 +246,16 @@ pub fn decode_map_file_to_ir(path: &str) -> anyhow::Result<(IrMap, PathBuf)> {
----             columns: ext.columns,
----             spacing: ext.spacing,
----             margin: ext.margin,
----+            properties: properties_from_json(ext.properties),
----+            tiles: ext
----+                .tiles
----+                .into_iter()
----+                .map(|tile| IrTileMetadata {
----+                    id: tile.id,
----+                    properties: properties_from_json(tile.properties),
----+                    objects: tile.objectgroup.objects.into_iter().map(object_to_ir).collect(),
----+                })
----+                .collect(),
----         });
+--- pub struct LocalChunkView<'g> {
+---     pub coord: ChunkCoord,
+----    pub layers: &'g HashMap<LayerIdx, Vec<TileRec>>,
+---+    pub layers: &'g HashMap<LayerIdx, LayerBucket>,
+--- }
+--- pub struct LocalView<'g> {
+---     pub chunks: Vec<LocalChunkView<'g>>,
+--- }
+--- 
+---+pub fn visible_chunk_coords_rect(view_min: Vec2, view_max: Vec2) -> Vec<ChunkCoord> {
+---+    let mut cx_min = (view_min.x as i32).div_euclid(CHUNK_SIZE);
+---+    let mut cy_min = (view_min.y as i32).div_euclid(CHUNK_SIZE);
+---+    let mut cx_max = (view_max.x as i32).div_euclid(CHUNK_SIZE);
+---+    let mut cy_max = (view_max.y as i32).div_euclid(CHUNK_SIZE);
+---+
+---+    if cx_min > cx_max {
+---+        std::mem::swap(&mut cx_min, &mut cx_max);
+---+    }
+---+    if cy_min > cy_max {
+---+        std::mem::swap(&mut cy_min, &mut cy_max);
+---+    }
+---+
+---+    let mut coords = Vec::new();
+---+    for cy in cy_min..=cy_max {
+---+        for cx in cx_min..=cx_max {
+---+            coords.push(ChunkCoord { x: cx, y: cy });
+---+        }
+---+    }
+---+    coords
+---+}
+---+
+--- pub fn query_visible<'g>(g: &'g GlobalIndex, cam: &Camera2D) -> LocalView<'g> {
+---     let (viewport_width, viewport_height) = match cam.viewport {
+---         Some((_, _, w, h)) => (w as f32, h as f32),
+---@@ -45,6 +67,7 @@ pub fn query_visible<'g>(g: &'g GlobalIndex, cam: &Camera2D) -> LocalView<'g> {
+---             })
+---         }
 ---     }
+---+    chunks.sort_by_key(|c| (c.coord.y, c.coord.x));
 --- 
----@@ -103,23 +264,28 @@ pub fn decode_map_file_to_ir(path: &str) -> anyhow::Result<(IrMap, PathBuf)> {
----         IrTileset::Atlas { first_gid, .. } => *first_gid,
----     });
---- 
-----    // Build IR layers (only tile layers for now)
----+    // Build IR layers
----     let mut ir_layers = Vec::with_capacity(j.layers.len());
----     for l in j.layers {
-----        if l.kind.as_deref().unwrap_or("tilelayer") != "tilelayer" {
-----            // skip non-tiles for now
-----            continue;
-----        }
----+        let properties = properties_from_json(l.properties);
----+        let layer_kind = match l.kind.as_deref().unwrap_or("tilelayer") {
----+            "tilelayer" => IrLayerKind::Tiles {
----+                width: l.width,
----+                height: l.height,
----+                data: l.data,
----+            },
----+            "objectgroup" => IrLayerKind::Objects {
----+                objects: l.objects.into_iter().map(object_to_ir).collect(),
----+            },
----+            _ => IrLayerKind::Unsupported,
----+        };
----         ir_layers.push(IrLayer {
----             name: l.name,
----             visible: l.visible,
----             opacity: l.opacity,
----             offset: vec2(l.offsetx, l.offsety),
-----            kind: IrLayerKind::Tiles {
-----                width: l.width,
-----                height: l.height,
-----                data: l.data,
-----            },
----+            properties,
----+            kind: layer_kind,
----         });
+---     LocalView { chunks }
+--- }
+---@@ -77,8 +100,27 @@ pub fn query_visible_rect<'g>(g: &'g GlobalIndex, view_min: Vec2, view_max: Vec2
+---             })
+---         }
 ---     }
+----
+----    //chunks.sort_by_key(|c| (c.coord.x, c.coord.y));
+---+    chunks.sort_by_key(|c| (c.coord.y, c.coord.x));
 --- 
----@@ -127,9 +293,123 @@ pub fn decode_map_file_to_ir(path: &str) -> anyhow::Result<(IrMap, PathBuf)> {
----         IrMap {
----             tile_w: j.tilewidth,
----             tile_h: j.tileheight,
----+            properties: properties_from_json(j.properties),
----             tilesets: ir_tilesets,
----             layers: ir_layers,
----         },
----         map_dir,
----     ))
+---     LocalView { chunks }
 --- }
 ---+
 ---+#[cfg(test)]
 ---+mod tests {
 ---+    use super::*;
----+    use std::fs;
----+    use std::time::{SystemTime, UNIX_EPOCH};
----+
----+    fn temp_dir() -> PathBuf {
----+        let nanos = SystemTime::now()
----+            .duration_since(UNIX_EPOCH)
----+            .expect("clock went backwards")
----+            .as_nanos();
----+        let dir = std::env::temp_dir().join(format!("mq_tiled_props_{nanos}"));
----+        fs::create_dir_all(&dir).expect("failed to create temp dir");
----+        dir
----+    }
+---+    use crate::spatial::TileId;
 ---+
 ---+    #[test]
----+    fn parses_properties_for_map_layer_object_tileset_and_tile() {
----+        let dir = temp_dir();
----+        let map_path = dir.join("map.json");
----+        let ts_path = dir.join("tileset.json");
+---+    fn query_visible_rect_returns_chunks_in_stable_order() {
+---+        let mut index = GlobalIndex::new();
+---+        index.add_tile(TileId(1), 0, vec2(520.0, 520.0)); // (2,2)
+---+        index.add_tile(TileId(1), 0, vec2(0.0, 0.0)); // (0,0)
+---+        index.add_tile(TileId(1), 0, vec2(260.0, 0.0)); // (1,0)
+---+        index.add_tile(TileId(1), 0, vec2(0.0, 260.0)); // (0,1)
 ---+
----+        let map_json = r#"{
----+          "tilewidth": 16,
----+          "tileheight": 16,
----+          "properties": [
----+            {"name":"is_night","type":"bool","value":true},
----+            {"name":"gravity","type":"float","value":9.8},
----+            {"name":"theme","type":"string","value":"forest"}
----+          ],
----+          "layers": [
----+            {
----+              "type":"tilelayer",
----+              "name":"ground",
----+              "width":2,
----+              "height":2,
----+              "data":[1,0,0,0],
----+              "properties":[
----+                {"name":"is_solid","type":"bool","value":true},
----+                {"name":"difficulty","type":"int","value":3}
----+              ]
----+            },
----+            {
----+              "type":"objectgroup",
----+              "name":"spawns",
----+              "objects":[
----+                {
----+                  "id": 7,
----+                  "name":"spawn_1",
----+                  "type":"spawn",
----+                  "properties":[{"name":"kind","type":"string","value":"player"}]
----+                }
----+              ],
----+              "properties":[{"name":"enabled","type":"bool","value":true}]
----+            }
----+          ],
----+          "tilesets":[{"firstgid":1,"source":"tileset.json"}]
----+        }"#;
+---+        let view = query_visible_rect(&index, vec2(0.0, 0.0), vec2(800.0, 800.0));
+---+        let coords: Vec<ChunkCoord> = view.chunks.iter().map(|c| c.coord).collect();
 ---+
----+        let tileset_json = r#"{
----+          "tilewidth":16,
----+          "tileheight":16,
----+          "tilecount":4,
----+          "columns":2,
----+          "image":"tiles.png",
----+          "properties":[{"name":"biome","type":"string","value":"forest"}],
----+          "tiles":[
----+            {
----+              "id":0,
----+              "properties":[{"name":"damage","type":"int","value":10}],
----+              "objectgroup":{
----+                "objects":[
----+                  {"id":1,"name":"hitbox","type":"shape","properties":[{"name":"sensor","type":"bool","value":false}]}
----+                ]
----+              }
----+            }
----+          ]
----+        }"#;
----+
----+        fs::write(&map_path, map_json).expect("failed to write map");
----+        fs::write(&ts_path, tileset_json).expect("failed to write tileset");
----+
----+        let (ir, _) = decode_map_file_to_ir(map_path.to_str().expect("path utf8")).expect("decode");
----+
----+        assert_eq!(ir.properties.get_bool("is_night"), Some(true));
----+        assert_eq!(ir.properties.get_f32("gravity"), Some(9.8));
----+        assert_eq!(ir.properties.get_string("theme"), Some("forest"));
----+
----+        assert_eq!(ir.layers[0].properties.get_bool("is_solid"), Some(true));
----+        assert_eq!(ir.layers[0].properties.get_i32("difficulty"), Some(3));
----+
----+        match &ir.layers[1].kind {
----+            IrLayerKind::Objects { objects } => {
----+                assert_eq!(objects.len(), 1);
----+                assert_eq!(objects[0].properties.get_string("kind"), Some("player"));
----+            }
----+            _ => panic!("expected object layer"),
----+        }
----+
----+        match &ir.tilesets[0] {
----+            IrTileset::Atlas {
----+                properties, tiles, ..
----+            } => {
----+                assert_eq!(properties.get_string("biome"), Some("forest"));
----+                assert_eq!(tiles.len(), 1);
----+                assert_eq!(tiles[0].properties.get_i32("damage"), Some(10));
----+                assert_eq!(tiles[0].objects.len(), 1);
----+                assert_eq!(tiles[0].objects[0].properties.get_bool("sensor"), Some(false));
----+            }
----+        }
+---+        assert!(coords.windows(2).all(|w| (w[0].y, w[0].x) <= (w[1].y, w[1].x)));
 ---+    }
 ---+}
----diff --git a/src/map.rs b/src/map.rs
----index a2826e7..76e1622 100644
------- a/src/map.rs
----+++ b/src/map.rs
----@@ -1,11 +1,14 @@
---- use crate::ir_map::*;
---- use crate::loader::json_loader::*;
---- use crate::render::*;
-----use crate::{spatial::CHUNK_SIZE, GlobalIndex, LayerIdx, TileId};
----+use crate::{
----+    spatial::{rel, world_to_chunk, ChunkCoord, CHUNK_SIZE},
----+    GlobalIndex, LayerIdx, TileId,
----+};
---- use anyhow::Context;
---- use macroquad::prelude::*;
----+use std::collections::HashMap;
---- use std::path::Path;
-----use std::thread::yield_now;
---- 
---- pub struct TilesetInfo {
----     pub first_gid: u32,
----@@ -18,9 +21,27 @@ pub struct TilesetInfo {
----     pub margin: u32,
+---diff --git a/src/spatial/index.rs b/src/spatial/index.rs
+---index 102539c..94179b7 100644
+------ a/src/spatial/index.rs
+---+++ b/src/spatial/index.rs
+---@@ -68,8 +68,20 @@ pub struct TileRec {
+---     pub rel_pos: Vec2,
 --- }
 --- 
----+pub struct ObjectLayer {
----+    pub name: String,
----+    pub visible: bool,
----+    pub opacity: f32,
----+    pub offset: Vec2,
----+    pub properties: Properties,
----+    pub objects: Vec<IrObject>,
+---+#[derive(Debug, Clone)]
+---+pub struct ObjectRec {
+---+    pub id: u32,
+---+    pub rel_pos: Vec2,
 ---+}
 ---+
----+#[derive(Clone, Copy)]
----+struct ObjectRec {
----+    object_idx: usize,
----+    rel_pos: Vec2,
+---+#[derive(Debug, Clone, Default)]
+---+pub struct LayerBucket {
+---+    pub tiles: Vec<TileRec>,
+---+    pub objects: Vec<ObjectRec>,
 ---+}
 ---+
---- pub struct Map {
----     pub index: GlobalIndex,
----     pub tilesets: Vec<TilesetInfo>,
----+    object_layers: Vec<ObjectLayer>,
----+    object_buckets: HashMap<ChunkCoord, HashMap<usize, Vec<ObjectRec>>>,
----+    debug_draw: bool,
----     gid_lut: Vec<u16>, //lookup table for tile GIDs to tileset indices
----     layer_order: Vec<LayerIdx>,
----     pub tile_w: u32,
----@@ -41,13 +62,8 @@ impl Map {
----             match t {
----                 IrTileset::Atlas {
----                     first_gid,
-----                    image,
-----                    tile_w,
-----                    tile_h,
----                     tilecount,
-----                    columns,
-----                    spacing,
-----                    margin,
----+                    ..
----                 } => {
----                     max_gid = max_gid.max(*first_gid + tilecount - 1);
----                 }
----@@ -67,6 +83,7 @@ impl Map {
----                     columns,
----                     spacing,
----                     margin,
----+                    ..
----                 } => {
----                     let img_path = base_dir.join(image);
----                     let tex = load_texture(img_path.to_str().unwrap())
----@@ -93,36 +110,72 @@ impl Map {
----         }
+--- pub struct GlobalChunk {
+----    pub layers: HashMap<LayerIdx, Vec<TileRec>>,
+---+    pub layers: HashMap<LayerIdx, LayerBucket>,
+--- }
 --- 
----         let mut index = GlobalIndex::new();
----+        let mut object_layers = Vec::new();
----+        let mut object_buckets: HashMap<ChunkCoord, HashMap<usize, Vec<ObjectRec>>> =
----+            HashMap::new();
----         let mut layer_order: Vec<LayerIdx> = Vec::new();
+--- impl GlobalChunk {
+---@@ -114,7 +126,7 @@ impl GlobalIndex {
+---         let cc = world_to_chunk(world);
+---         let handle = self.alloc_handle();
+---         let bucket = self.buckets.entry(cc).or_insert_with(GlobalChunk::new);
+----        let vec = bucket.layers.entry(layer).or_insert_with(Vec::new);
+---+        let vec = &mut bucket.layers.entry(layer).or_default().tiles;
 --- 
----         for (lz, layer) in ir.layers.iter().enumerate() {
----+            if let IrLayerKind::Objects { objects } = &layer.kind {
----+                let layer_idx = object_layers.len();
----+                object_layers.push(ObjectLayer {
----+                    name: layer.name.clone(),
----+                    visible: layer.visible,
----+                    opacity: layer.opacity,
----+                    offset: layer.offset,
----+                    properties: layer.properties.clone(),
----+                    objects: objects.clone(),
----+                });
----+
----+                for (object_idx, obj) in objects.iter().enumerate() {
----+                    let world = vec2(obj.x, obj.y) + layer.offset;
----+                    let (min, max) = Self::object_aabb_world(obj, layer.offset);
----+                    let chunk_min = world_to_chunk(min);
----+                    let chunk_max = world_to_chunk(max);
----+
----+                    for cy in chunk_min.y..=chunk_max.y {
----+                        for cx in chunk_min.x..=chunk_max.x {
----+                            let cc = ChunkCoord { x: cx, y: cy };
----+                            let by_layer = object_buckets.entry(cc).or_default();
----+                            by_layer.entry(layer_idx).or_default().push(ObjectRec {
----+                                object_idx,
----+                                rel_pos: rel(world),
----+                            });
----+                        }
----+                    }
----+                }
----+                continue;
----+            }
----+
----             let lid = lz as LayerIdx;
----             let mut inserted_any = false;
---- 
-----            let IrLayerKind::Tiles {
-----                width,
-----                height,
-----                data,
-----            } = &layer.kind;
-----
-----            {
-----                let tw = ir.tile_w as f32;
-----                let th = ir.tile_h as f32;
-----
-----                for (idx, gid) in data.iter().enumerate() {
-----                    if *gid == 0 {
-----                        continue;
-----                    }
----+            let (width, data) = match &layer.kind {
----+                IrLayerKind::Tiles {
----+                    width,
----+                    height: _,
----+                    data,
----+                } => (width, data),
----+                _ => continue,
----+            };
----+
----+            let tw = ir.tile_w as f32;
----+            let th = ir.tile_h as f32;
----+
----+            for (idx, gid) in data.iter().enumerate() {
----+                if *gid == 0 {
----+                    continue;
----+                }
---- 
-----                    let col = idx % *width;
-----                    let row = idx / *width;
-----                    let mut world = vec2(col as f32 * tw, row as f32 * th);
-----                    world += layer.offset;
----+                let col = idx % *width;
----+                let row = idx / *width;
----+                let mut world = vec2(col as f32 * tw, row as f32 * th);
----+                world += layer.offset;
---- 
-----                    index.add_tile(TileId(*gid), lz as LayerIdx, world);
-----                    inserted_any = true;
-----                }
----+                index.add_tile(TileId(*gid), lid, world);
----+                inserted_any = true;
----             }
----+
----             if inserted_any {
----                 layer_order.push(lid);
----             }
----@@ -131,6 +184,9 @@ impl Map {
----         Ok(Self {
----             index,
----             tilesets,
----+            object_layers,
----+            object_buckets,
----+            debug_draw: false,
----             gid_lut,
----             layer_order,
----             tile_w: ir.tile_w,
----@@ -138,6 +194,61 @@ impl Map {
----         })
----     }
---- 
----+    fn object_aabb_world(obj: &IrObject, layer_offset: Vec2) -> (Vec2, Vec2) {
----+        let origin = vec2(obj.x, obj.y) + layer_offset;
----+
----+        match &obj.shape {
----+            IrObjectShape::Rectangle => {
----+                let x2 = origin.x + obj.width;
----+                let y2 = origin.y + obj.height;
----+                (
----+                    vec2(origin.x.min(x2), origin.y.min(y2)),
----+                    vec2(origin.x.max(x2), origin.y.max(y2)),
----+                )
----+            }
----+            IrObjectShape::Point => (
----+                origin - vec2(0.5, 0.5),
----+                origin + vec2(0.5, 0.5),
----+            ),
----+            IrObjectShape::Polygon(points) | IrObjectShape::Polyline(points) => {
----+                if points.is_empty() {
----+                    return (origin - vec2(0.5, 0.5), origin + vec2(0.5, 0.5));
----+                }
----+
----+                let mut min_x = origin.x;
----+                let mut min_y = origin.y;
----+                let mut max_x = origin.x;
----+                let mut max_y = origin.y;
----+
----+                for p in points {
----+                    let wp = origin + *p;
----+                    min_x = min_x.min(wp.x);
----+                    min_y = min_y.min(wp.y);
----+                    max_x = max_x.max(wp.x);
----+                    max_y = max_y.max(wp.y);
----+                }
----+
----+                (vec2(min_x, min_y), vec2(max_x, max_y))
----+            }
----+            IrObjectShape::Tile { .. } => {
----+                // Tile objects are drawn at (x, y - h), so AABB must match that.
----+                let w = if obj.width > 0.0 { obj.width } else { 1.0 };
----+                let h = if obj.height > 0.0 { obj.height } else { 1.0 };
----+                (vec2(origin.x, origin.y - h), vec2(origin.x + w, origin.y))
----+            }
----+        }
----+    }
----+
----+    pub fn object_layers(&self) -> &[ObjectLayer] {
----+        &self.object_layers
----+    }
----+
----+    pub fn objects(&self) -> impl Iterator<Item = &IrObject> {
----+        self.object_layers
----+            .iter()
----+            .flat_map(|layer| layer.objects.iter())
----+    }
----+
----     #[inline]
----     fn params_for_flips(
----         &self,
----@@ -145,21 +256,20 @@ impl Map {
----         tile_w: f32,
----         tile_h: f32,
----     ) -> (f32, bool, bool, Option<Vec2>) {
-----        let h = gid.flip_h(); // horizontal flip
-----        let v = gid.flip_v(); // vertical flip
-----        let d = gid.flip_d(); // diagonal flip
----+        let h = gid.flip_h();
----+        let v = gid.flip_v();
----+        let d = gid.flip_d();
---- 
-----        let flip_x = h ^ d; // flip horizontally if not diagonal
----+        let flip_x = h ^ d;
----         let flip_y = v;
----         let pivot = Some(vec2(tile_w / 2.0, tile_h / 2.0));
---- 
----         let rotation = match (h, v, d) {
-----            (false, _, _) => 0.0, // no flip
-----
-----            (true, false, false) => std::f32::consts::FRAC_PI_2, // + 90 degrees (with flip)
-----            (true, false, true) => std::f32::consts::FRAC_PI_2,  // - 90 defrees
-----            (true, true, false) => std::f32::consts::FRAC_PI_2,  // + 90 degrees
-----            (true, true, true) => std::f32::consts::PI,          // 180 degrees
----+            (false, _, _) => 0.0,
----+            (true, false, false) => std::f32::consts::FRAC_PI_2,
----+            (true, false, true) => std::f32::consts::FRAC_PI_2,
----+            (true, true, false) => std::f32::consts::FRAC_PI_2,
----+            (true, true, true) => std::f32::consts::PI,
----         };
---- 
----         (rotation, flip_x, flip_y, pivot)
----@@ -167,27 +277,17 @@ impl Map {
---- 
----     #[inline]
----     fn ts_for_gid(&self, gid: TileId) -> Option<(&TilesetInfo, u32)> {
-----        // Clean the tile ID by removing flip/rotation flags, keep only the actual ID number
----         let clean = gid.clean() as usize;
-----
-----        // Check if the cleaned ID is within the bounds of our lookup table
----         if clean >= self.gid_lut.len() {
----             return None;
----         }
---- 
-----        // Get the tileset index from the lookup table
----         let idx = self.gid_lut[clean];
-----
-----        // If the index is u16::MAX, this means the tile ID doesn't map to any tileset
----         if idx == u16::MAX {
----             return None;
----         }
---- 
-----        // Get the tileset info from the tilesets array
----         let ts = &self.tilesets[idx as usize];
-----
-----        // Return the tileset info and the local ID within that tileset
-----        // The local ID is calculated by subtracting the tileset's first GID from the cleaned tile ID
----         Some((ts, gid.clean() - ts.first_gid))
----     }
---- 
----@@ -196,6 +296,28 @@ impl Map {
----         self.draw_chunks(view);
----     }
---- 
----+    pub fn draw(&self, view_min: Vec2, view_max: Vec2) {
----+        self.draw_visible_rect(view_min, view_max);
----+        self.draw_objects_tiles(view_min, view_max);
----+        if self.debug_draw {
----+            self.draw_objects_debug(view_min, view_max);
----+        }
----+    }
----+
----+    pub fn set_debug_draw(&mut self, enabled: bool) {
----+        self.debug_draw = enabled;
----+    }
----+
----+    pub fn draw_objects_debug(&self, view_min: Vec2, view_max: Vec2) {
----+        let view = query_visible_rect(&self.index, view_min, view_max);
----+        self.draw_chunk_objects_debug(view);
----+    }
----+
----+    pub fn draw_objects_tiles(&self, view_min: Vec2, view_max: Vec2) {
----+        let view = query_visible_rect(&self.index, view_min, view_max);
----+        self.draw_chunk_objects_tiles(view);
----+    }
----+
----     fn draw_chunks(&self, view: LocalView) {
----         for &layer_id in &self.layer_order {
----             for LocalChunkView { coord: cc, layers } in &view.chunks {
----@@ -241,4 +363,172 @@ impl Map {
----             }
----         }
+---         let idx = vec.len();
+---         vec.push(TileRec {
+---@@ -129,4 +141,14 @@ impl GlobalIndex {
+---         });
+---         handle
 ---     }
 ---+
----+    fn draw_chunk_objects_debug(&self, view: LocalView) {
----+        for (layer_idx, layer) in self.object_layers.iter().enumerate() {
----+            if !layer.visible {
----+                continue;
----+            }
----+
----+            let mut drawn = vec![false; layer.objects.len()];
----+
----+            for LocalChunkView { coord: cc, .. } in &view.chunks {
----+                let Some(by_layer) = self.object_buckets.get(cc) else {
----+                    continue;
----+                };
----+                let Some(records) = by_layer.get(&layer_idx) else {
----+                    continue;
----+                };
----+
----+                for rec in records {
----+                    if drawn[rec.object_idx] {
----+                        continue;
----+                    }
----+                    drawn[rec.object_idx] = true;
----+
----+                    let Some(obj) = layer.objects.get(rec.object_idx) else {
----+                        continue;
----+                    };
----+                    if !obj.visible {
----+                        continue;
----+                    }
----+
----+                    let origin = vec2(
----+                        (cc.x * CHUNK_SIZE) as f32 + rec.rel_pos.x,
----+                        (cc.y * CHUNK_SIZE) as f32 + rec.rel_pos.y,
----+                    );
----+
----+                    match &obj.shape {
----+                        IrObjectShape::Rectangle => {
----+                            draw_rectangle_lines(
----+                                origin.x,
----+                                origin.y,
----+                                obj.width.max(2.0),
----+                                obj.height.max(2.0),
----+                                2.0,
----+                                YELLOW,
----+                            );
----+                        }
----+                        IrObjectShape::Point => {
----+                            draw_circle(origin.x, origin.y, 5.0, GREEN);
----+                        }
----+                        IrObjectShape::Polygon(points) => {
----+                            if points.len() < 2 {
----+                                continue;
----+                            }
----+                            for i in 0..points.len() {
----+                                let a = origin + points[i];
----+                                let b = origin + points[(i + 1) % points.len()];
----+                                draw_line(a.x, a.y, b.x, b.y, 2.0, SKYBLUE);
----+                            }
----+                        }
----+                        IrObjectShape::Polyline(points) => {
----+                            for seg in points.windows(2) {
----+                                let a = origin + seg[0];
----+                                let b = origin + seg[1];
----+                                draw_line(a.x, a.y, b.x, b.y, 2.0, PINK);
----+                            }
----+                        }
----+                        IrObjectShape::Tile { .. } => {
----+                            draw_rectangle_lines(
----+                                origin.x,
----+                                origin.y - obj.height,
----+                                obj.width.max(16.0),
----+                                obj.height.max(16.0),
----+                                2.0,
----+                                MAGENTA,
----+                            );
----+                        }
----+                    }
----+                }
----+            }
----+        }
----+    }
----+
----+    fn draw_chunk_objects_tiles(&self, view: LocalView) {
----+        for (layer_idx, layer) in self.object_layers.iter().enumerate() {
----+            if !layer.visible {
----+                continue;
----+            }
----+
----+            let mut drawn = vec![false; layer.objects.len()];
----+
----+            for LocalChunkView { coord: cc, .. } in &view.chunks {
----+                let Some(by_layer) = self.object_buckets.get(cc) else {
----+                    continue;
----+                };
----+                let Some(records) = by_layer.get(&layer_idx) else {
----+                    continue;
----+                };
----+
----+                for rec in records {
----+                    if drawn[rec.object_idx] {
----+                        continue;
----+                    }
----+                    drawn[rec.object_idx] = true;
----+
----+                    let Some(obj) = layer.objects.get(rec.object_idx) else {
----+                        continue;
----+                    };
----+                    if !obj.visible {
----+                        continue;
----+                    }
----+
----+                    let IrObjectShape::Tile { gid } = obj.shape else {
----+                        continue;
----+                    };
----+
----+                    let origin = vec2(
----+                        (cc.x * CHUNK_SIZE) as f32 + rec.rel_pos.x,
----+                        (cc.y * CHUNK_SIZE) as f32 + rec.rel_pos.y,
----+                    );
----+
----+                    let gid = TileId(gid);
----+                    let Some((ts, local)) = self.ts_for_gid(gid) else {
----+                        continue;
----+                    };
----+
----+                    let col = local % ts.cols;
----+                    let row = local / ts.cols;
----+                    let sx = ts.margin + col * (ts.tile_w + ts.spacing);
----+                    let sy = ts.margin + row * (ts.tile_h + ts.spacing);
----+
----+                    let w = if obj.width > 0.0 {
----+                        obj.width
----+                    } else {
----+                        ts.tile_w as f32
----+                    };
----+                    let h = if obj.height > 0.0 {
----+                        obj.height
----+                    } else {
----+                        ts.tile_h as f32
----+                    };
----+
----+                    let (flag_rotation, flip_x, flip_y, _) = self.params_for_flips(gid, w, h);
----+                    let rotation = obj.rotation.to_radians() + flag_rotation;
----+
----+                    draw_texture_ex(
----+                        &ts.tex,
----+                        origin.x,
----+                        origin.y - h,
----+                        WHITE,
----+                        DrawTextureParams {
----+                            source: Some(Rect::new(
----+                                sx as f32,
----+                                sy as f32,
----+                                ts.tile_w as f32,
----+                                ts.tile_h as f32,
----+                            )),
----+                            dest_size: Some(vec2(w, h)),
----+                            rotation,
----+                            flip_x,
----+                            flip_y,
----+                            pivot: Some(vec2(0.0, h)),
----+                            ..Default::default()
----+                        },
----+                    );
----+                }
----+            }
----+        }
+---+    pub fn insert_object(&mut self, layer: LayerIdx, chunk: ChunkCoord, object_rec: ObjectRec) {
+---+        let bucket = self.buckets.entry(chunk).or_insert_with(GlobalChunk::new);
+---+        bucket
+---+            .layers
+---+            .entry(layer)
+---+            .or_default()
+---+            .objects
+---+            .push(object_rec);
 ---+    }
 --- }
+---diff --git a/ticket_diff.txt b/ticket_diff.txt
+---index 6ab2401..12d162e 100644
+------ a/ticket_diff.txt
+---+++ b/ticket_diff.txt
+---@@ -1,1219 +0,0 @@
+----diff --git a/Cargo.toml b/Cargo.toml
+----index 67dcd35..51e6221 100644
+------- a/Cargo.toml
+----+++ b/Cargo.toml
+----@@ -2,9 +2,13 @@
+---- name = "macroquad_tiled_clone"
+---- version = "0.1.0"
+---- edition = "2021"
+-----authors = ["Your Name <you@example.com>"]
+----+authors = ["B3Z0 <vlad.cotiga75@egmail.com>"]
+---- license = "MIT OR Apache-2.0"
+---- description = "Minimal Tiled JSON loader & renderer for Macroquad"
+----+repository = "https://github.com/B3Z0/macroquad_tiled_clone.git"
+----+readme = "README.md"
+----+keywords = ["tiled", "macroquad", "tilemap", "gamedev"]
+----+categories = ["game-development", "graphics"]
+---- 
+---- [dependencies]
+---- macroquad = "0.4"               # for rendering & textures
+----diff --git a/README.md b/README.md
+----index 217eb3b..bf04146 100644
+------- a/README.md
+----+++ b/README.md
+----@@ -1,22 +1,58 @@
+---- # macroquad_tiled_clone
+---- 
+-----Minimal Tiled JSON loader & renderer for Macroquad.
+----+Minimal Tiled JSON loader and renderer for Macroquad.
+---- 
+-----## Roadmap
+----+## Supports
+---- 
+------ **Phase 1 (MVP):**  
+-----  - Parse basic Tiled JSON (map metadata + single tile layer)  
+-----  - Load one Texture2D, compute sprite rects  
+-----  - Double‐loop draw with `draw_texture_ex`
+----+- Tiled JSON maps (orthogonal) with external tilesets (`source` .json)
+----+- Tile layers with `data` arrays
+----+- Multiple tilesets (firstgid mapping)
+----+- Per-layer offsets
+----+- Tile flip/rotation flags from Tiled GIDs
+----+- Rendering via `draw_texture_ex` with nearest filtering
+---- 
+------ **Phase 2:**  
+-----  - Named layers, batching, image/object layers
+----+## Not yet
+---- 
+------ **Phase 3+:**  
+-----  - Animations, properties, infinite maps, isometric, extensions…
+----+- Inline tilesets
+----+- Image layers and object layers
+----+- Infinite maps (chunked layers)
+----+- Isometric or hex maps
+----+- Tile properties and animations
+----+- Layer visibility/opacity in rendering
+---- 
+-----## Getting Started
+----+## Quickstart
+---- 
+-----1. Add to your project:  
+----+1. Add to your project:
+----    ```toml
+-----   macroquad_tiled_clone = { git = "https://github.com/yourusername/macroquad_tiled_clone" }
+----+   macroquad_tiled_clone = { git = "https://github.com/B3Z0/macroquad_tiled_clone.git" }
+----+   ```
+----+2. Run the example:
+----+   ```bash
+----+   cargo run --example basic_map
+----+   ```
+----+3. Load and draw a map:
+----+   ```rust
+----+   use macroquad::prelude::*;
+----+   use macroquad_tiled_clone::map::Map;
+----+
+----+   #[macroquad::main("My Game")]
+----+   async fn main() {
+----+       let map = Map::load("assets2/map.json")
+----+           .await
+----+           .expect("Failed to load map");
+----+
+----+       loop {
+----+           clear_background(BLACK);
+----+           map.draw_visible_rect(Vec2::ZERO, vec2(screen_width(), screen_height()));
+----+           next_frame().await;
+----+       }
+----+   }
+----+   ```
+----+
+----+## Limitations
+----+
+----+- Map files must be `.json` exported from Tiled.
+----+- Tilesets must be external JSON tilesets with a single atlas image.
+----+- Non-tile layers are skipped.
+----+- Infinite maps are not supported (no chunked `layers[].chunks`).
+----+- Layer `visible` and `opacity` are loaded but not applied at draw time.
+----diff --git a/assets2/map.json b/assets2/map.json
+----index 0247cab..004956b 100644
+------- a/assets2/map.json
+----+++ b/assets2/map.json
+----@@ -33,6 +33,82 @@
+----          "x":0,
+----          "y":0
+----         }, 
+----+        {
+----+         "draworder":"topdown",
+----+         "id":4,
+----+         "name":"Object Layer 1",
+----+         "objects":[
+----+                {
+----+                 "height":0,
+----+                 "id":1,
+----+                 "name":"Point 1",
+----+                 "point":true,
+----+                 "rotation":0,
+----+                 "type":"",
+----+                 "visible":true,
+----+                 "width":0,
+----+                 "x":286,
+----+                 "y":271
+----+                }, 
+----+                {
+----+                 "height":64,
+----+                 "id":43,
+----+                 "name":"SpawnArea",
+----+                 "properties":[
+----+                        {
+----+                         "name":"spawn",
+----+                         "type":"bool",
+----+                         "value":true
+----+                        }],
+----+                 "rotation":0,
+----+                 "type":"Trigger",
+----+                 "visible":true,
+----+                 "width":96,
+----+                 "x":64,
+----+                 "y":64
+----+                }, 
+----+                {
+----+                 "gid":15,
+----+                 "height":47,
+----+                 "id":12,
+----+                 "name":"",
+----+                 "rotation":0,
+----+                 "type":"",
+----+                 "visible":true,
+----+                 "width":59,
+----+                 "x":471,
+----+                 "y":190
+----+                }, 
+----+                {
+----+                 "gid":15,
+----+                 "height":89,
+----+                 "id":13,
+----+                 "name":"",
+----+                 "rotation":0,
+----+                 "type":"",
+----+                 "visible":true,
+----+                 "width":87,
+----+                 "x":538,
+----+                 "y":392
+----+                }, 
+----+                {
+----+                 "gid":15,
+----+                 "height":16,
+----+                 "id":14,
+----+                 "name":"",
+----+                 "rotation":0,
+----+                 "type":"",
+----+                 "visible":true,
+----+                 "width":20,
+----+                 "x":447,
+----+                 "y":420
+----+                }],
+----+         "opacity":1,
+----+         "type":"objectgroup",
+----+         "visible":true,
+----+         "x":0,
+----+         "y":0
+----+        }, 
+----         {
+----          "data":[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+----             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+----@@ -95,11 +171,11 @@
+----          "x":0,
+----          "y":0
+----         }],
+----- "nextlayerid":4,
+----- "nextobjectid":1,
+----+ "nextlayerid":5,
+----+ "nextobjectid":15,
+----  "orientation":"orthogonal",
+----  "renderorder":"right-down",
+----- "tiledversion":"1.10.2",
+----+ "tiledversion":"1.11.2",
+----  "tileheight":32,
+----  "tilesets":[
+----         {
+----@@ -109,6 +185,10 @@
+----         {
+----          "firstgid":5,
+----          "source":"tileset2.json"
+----+        }, 
+----+        {
+----+         "firstgid":15,
+----+         "source":"coin.json"
+----         }],
+----  "tilewidth":32,
+----  "type":"map",
+----diff --git a/examples/basic_map.rs b/examples/basic_map.rs
+----index 54935dd..db1feca 100644
+------- a/examples/basic_map.rs
+----+++ b/examples/basic_map.rs
+----@@ -22,7 +22,7 @@ async fn main() {
+----     loop {
+----         clear_background(BLACK);
+---- 
+-----        map.draw_visible_rect(Vec2::ZERO, screen_size);
+----+        map.draw(Vec2::ZERO, screen_size);
+---- 
+----         // Draw the frame rate in the top-left corner
+----         draw_text(
+----diff --git a/src/ir_map.rs b/src/ir_map.rs
+----index 45c3763..8abab3b 100644
+------- a/src/ir_map.rs
+----+++ b/src/ir_map.rs
+----@@ -1,10 +1,98 @@
+---- // src/ir.rs
+---- use macroquad::prelude::*;
+----+use std::collections::HashMap;
+----+
+----+#[derive(Clone, Debug, PartialEq)]
+----+pub enum PropertyValue {
+----+    Bool(bool),
+----+    I32(i32),
+----+    F32(f32),
+----+    String(String),
+----+}
+----+
+----+#[derive(Clone, Debug, Default, PartialEq)]
+----+pub struct Properties(HashMap<String, PropertyValue>);
+----+
+----+impl Properties {
+----+    pub fn new() -> Self {
+----+        Self::default()
+----+    }
+----+
+----+    pub fn insert(&mut self, key: String, value: PropertyValue) {
+----+        self.0.insert(key, value);
+----+    }
+----+
+----+    pub fn get(&self, key: &str) -> Option<&PropertyValue> {
+----+        self.0.get(key)
+----+    }
+----+
+----+    pub fn get_bool(&self, key: &str) -> Option<bool> {
+----+        match self.0.get(key) {
+----+            Some(PropertyValue::Bool(v)) => Some(*v),
+----+            _ => None,
+----+        }
+----+    }
+----+
+----+    pub fn get_i32(&self, key: &str) -> Option<i32> {
+----+        match self.0.get(key) {
+----+            Some(PropertyValue::I32(v)) => Some(*v),
+----+            _ => None,
+----+        }
+----+    }
+----+
+----+    pub fn get_f32(&self, key: &str) -> Option<f32> {
+----+        match self.0.get(key) {
+----+            Some(PropertyValue::F32(v)) => Some(*v),
+----+            _ => None,
+----+        }
+----+    }
+----+
+----+    pub fn get_string(&self, key: &str) -> Option<&str> {
+----+        match self.0.get(key) {
+----+            Some(PropertyValue::String(v)) => Some(v.as_str()),
+----+            _ => None,
+----+        }
+----+    }
+----+}
+----+
+----+#[derive(Clone, Debug, PartialEq)]
+----+pub enum IrObjectShape {
+----+    Rectangle,
+----+    Point,
+----+    Polygon(Vec<Vec2>),
+----+    Polyline(Vec<Vec2>),
+----+    Tile {
+----+        gid: u32,
+----+    },
+----+}
+----+
+----+#[derive(Clone, Debug, PartialEq)]
+----+pub struct IrObject {
+----+    pub id: u32,
+----+    pub name: String,
+----+    pub class_name: String,
+----+    pub x: f32,
+----+    pub y: f32,
+----+    pub width: f32,
+----+    pub height: f32,
+----+    pub rotation: f32,
+----+    pub visible: bool,
+----+    pub shape: IrObjectShape,
+----+    pub properties: Properties,
+----+}
+----+
+----+#[derive(Clone, Debug, PartialEq)]
+----+pub struct IrTileMetadata {
+----+    pub id: u32,
+----+    pub properties: Properties,
+----+    pub objects: Vec<IrObject>,
+----+}
+---- 
+---- /// Canonical, format-agnostic map.
+---- pub struct IrMap {
+----     pub tile_w: u32,
+----     pub tile_h: u32,
+----+    pub properties: Properties,
+----     pub tilesets: Vec<IrTileset>, // must be sorted by first_gid
+----     pub layers: Vec<IrLayer>,     // draw order: array order
+---- }
+----@@ -20,6 +108,8 @@ pub enum IrTileset {
+----         columns: u32,
+----         spacing: u32, // 0 if not used
+----         margin: u32,  // 0 if not used
+----+        properties: Properties,
+----+        tiles: Vec<IrTileMetadata>,
+----     },
+----     // (later) ImagePerTile { first_gid, tiles: Vec<IrTileImage> },
+---- }
+----@@ -30,6 +120,10 @@ pub enum IrLayerKind {
+----         height: usize,
+----         data: Vec<u32>, // raw GIDs (including flip flags ok)
+----     },
+----+    Objects {
+----+        objects: Vec<IrObject>,
+----+    },
+----+    Unsupported,
+----     // (later) Objects { ... }, Image { ... }
+---- }
+---- 
+----@@ -38,5 +132,6 @@ pub struct IrLayer {
+----     pub visible: bool,
+----     pub opacity: f32,
+----     pub offset: Vec2, // world offset for this layer
+----+    pub properties: Properties,
+----     pub kind: IrLayerKind,
+---- }
+----diff --git a/src/loader/json_loader.rs b/src/loader/json_loader.rs
+----index c2cff0c..9b5c064 100644
+------- a/src/loader/json_loader.rs
+----+++ b/src/loader/json_loader.rs
+----@@ -3,12 +3,16 @@ use crate::ir_map::*;
+---- use anyhow::Context;
+---- use macroquad::prelude::*;
+---- use serde::Deserialize;
+----+use serde_json::Value as JsonValue;
+---- use std::path::{Path, PathBuf};
+---- 
+---- #[derive(Deserialize)]
+---- struct JsonLayer {
+----+    #[serde(default)]
+----     data: Vec<u32>,
+----+    #[serde(default)]
+----     width: usize,
+----+    #[serde(default)]
+----     height: usize,
+----     #[serde(default = "default_true")]
+----     visible: bool,
+----@@ -22,6 +26,10 @@ struct JsonLayer {
+----     name: String,
+----     #[serde(rename = "type")]
+----     kind: Option<String>, // "tilelayer" expected here
+----+    #[serde(default)]
+----+    properties: Vec<JsonProperty>,
+----+    #[serde(default)]
+----+    objects: Vec<JsonObject>,
+---- }
+---- 
+---- fn default_true() -> bool {
+----@@ -43,6 +51,8 @@ struct JsonMap {
+----     tileheight: u32,
+----     layers: Vec<JsonLayer>,
+----     tilesets: Vec<JsonTilesetRef>,
+----+    #[serde(default)]
+----+    properties: Vec<JsonProperty>,
+---- }
+---- 
+---- #[derive(Deserialize)]
+----@@ -56,6 +66,147 @@ struct ExternalTileset {
+----     spacing: u32,
+----     #[serde(default)]
+----     margin: u32,
+----+    #[serde(default)]
+----+    properties: Vec<JsonProperty>,
+----+    #[serde(default)]
+----+    tiles: Vec<JsonTile>,
+----+}
+----+
+----+#[derive(Deserialize)]
+----+struct JsonProperty {
+----+    name: String,
+----+    #[serde(default, rename = "type")]
+----+    kind: Option<String>,
+----+    value: JsonValue,
+----+}
+----+
+----+#[derive(Deserialize)]
+----+struct JsonObject {
+----+    #[serde(default)]
+----+    id: u32,
+----+    #[serde(default)]
+----+    name: String,
+----+    #[serde(default, rename = "type")]
+----+    kind: String,
+----+    #[serde(default)]
+----+    class: String,
+----+    #[serde(default)]
+----+    x: f32,
+----+    #[serde(default)]
+----+    y: f32,
+----+    #[serde(default)]
+----+    width: f32,
+----+    #[serde(default)]
+----+    height: f32,
+----+    #[serde(default)]
+----+    rotation: f32,
+----+    #[serde(default = "default_true")]
+----+    visible: bool,
+----+    #[serde(default)]
+----+    point: bool,
+----+    #[serde(default)]
+----+    polygon: Vec<JsonObjectPoint>,
+----+    #[serde(default)]
+----+    polyline: Vec<JsonObjectPoint>,
+----+    #[serde(default)]
+----+    gid: Option<u32>,
+----+    #[serde(default)]
+----+    properties: Vec<JsonProperty>,
+----+}
+----+
+----+#[derive(Deserialize)]
+----+struct JsonObjectPoint {
+----+    x: f32,
+----+    y: f32,
+----+}
+----+
+----+#[derive(Deserialize, Default)]
+----+struct JsonObjectGroup {
+----+    #[serde(default)]
+----+    objects: Vec<JsonObject>,
+----+}
+----+
+----+#[derive(Deserialize)]
+----+struct JsonTile {
+----+    id: u32,
+----+    #[serde(default)]
+----+    properties: Vec<JsonProperty>,
+----+    #[serde(default)]
+----+    objectgroup: JsonObjectGroup,
+----+}
+----+
+----+fn json_property_to_ir(prop: JsonProperty) -> Option<(String, PropertyValue)> {
+----+    let value = match prop.kind.as_deref() {
+----+        Some("bool") => prop.value.as_bool().map(PropertyValue::Bool),
+----+        Some("int") | Some("object") => prop
+----+            .value
+----+            .as_i64()
+----+            .and_then(|n| i32::try_from(n).ok())
+----+            .map(PropertyValue::I32),
+----+        Some("float") => prop.value.as_f64().map(|n| PropertyValue::F32(n as f32)),
+----+        Some("string") | Some("file") | Some("color") | Some("class") => {
+----+            prop.value.as_str().map(|s| PropertyValue::String(s.to_owned()))
+----+        }
+----+        _ => {
+----+            if let Some(v) = prop.value.as_bool() {
+----+                Some(PropertyValue::Bool(v))
+----+            } else if let Some(v) = prop.value.as_i64().and_then(|n| i32::try_from(n).ok()) {
+----+                Some(PropertyValue::I32(v))
+----+            } else if let Some(v) = prop.value.as_f64() {
+----+                Some(PropertyValue::F32(v as f32))
+----+            } else {
+----+                prop.value
+----+                    .as_str()
+----+                    .map(|s| PropertyValue::String(s.to_owned()))
+----+            }
+----+        }
+----+    }?;
+----+
+----+    Some((prop.name, value))
+----+}
+----+
+----+fn properties_from_json(props: Vec<JsonProperty>) -> Properties {
+----+    let mut out = Properties::new();
+----+    for p in props {
+----+        if let Some((name, value)) = json_property_to_ir(p) {
+----+            out.insert(name, value);
+----+        }
+----+    }
+----+    out
+----+}
+----+
+----+fn object_to_ir(obj: JsonObject) -> IrObject {
+----+    let shape = if let Some(gid) = obj.gid {
+----+        IrObjectShape::Tile { gid }
+----+    } else if obj.point {
+----+        IrObjectShape::Point
+----+    } else if !obj.polygon.is_empty() {
+----+        IrObjectShape::Polygon(obj.polygon.into_iter().map(|p| vec2(p.x, p.y)).collect())
+----+    } else if !obj.polyline.is_empty() {
+----+        IrObjectShape::Polyline(obj.polyline.into_iter().map(|p| vec2(p.x, p.y)).collect())
+----+    } else {
+----+        IrObjectShape::Rectangle
+----+    };
+----+
+----+    let class_name = if !obj.class.is_empty() {
+----+        obj.class
+----+    } else {
+----+        obj.kind
+----+    };
+----+
+----+    IrObject {
+----+        id: obj.id,
+----+        name: obj.name,
+----+        class_name,
+----+        x: obj.x,
+----+        y: obj.y,
+----+        width: obj.width,
+----+        height: obj.height,
+----+        rotation: obj.rotation,
+----+        visible: obj.visible,
+----+        shape,
+----+        properties: properties_from_json(obj.properties),
+----+    }
+---- }
+---- 
+---- pub fn decode_map_file_to_ir(path: &str) -> anyhow::Result<(IrMap, PathBuf)> {
+----@@ -95,6 +246,16 @@ pub fn decode_map_file_to_ir(path: &str) -> anyhow::Result<(IrMap, PathBuf)> {
+----             columns: ext.columns,
+----             spacing: ext.spacing,
+----             margin: ext.margin,
+----+            properties: properties_from_json(ext.properties),
+----+            tiles: ext
+----+                .tiles
+----+                .into_iter()
+----+                .map(|tile| IrTileMetadata {
+----+                    id: tile.id,
+----+                    properties: properties_from_json(tile.properties),
+----+                    objects: tile.objectgroup.objects.into_iter().map(object_to_ir).collect(),
+----+                })
+----+                .collect(),
+----         });
+----     }
+---- 
+----@@ -103,23 +264,28 @@ pub fn decode_map_file_to_ir(path: &str) -> anyhow::Result<(IrMap, PathBuf)> {
+----         IrTileset::Atlas { first_gid, .. } => *first_gid,
+----     });
+---- 
+-----    // Build IR layers (only tile layers for now)
+----+    // Build IR layers
+----     let mut ir_layers = Vec::with_capacity(j.layers.len());
+----     for l in j.layers {
+-----        if l.kind.as_deref().unwrap_or("tilelayer") != "tilelayer" {
+-----            // skip non-tiles for now
+-----            continue;
+-----        }
+----+        let properties = properties_from_json(l.properties);
+----+        let layer_kind = match l.kind.as_deref().unwrap_or("tilelayer") {
+----+            "tilelayer" => IrLayerKind::Tiles {
+----+                width: l.width,
+----+                height: l.height,
+----+                data: l.data,
+----+            },
+----+            "objectgroup" => IrLayerKind::Objects {
+----+                objects: l.objects.into_iter().map(object_to_ir).collect(),
+----+            },
+----+            _ => IrLayerKind::Unsupported,
+----+        };
+----         ir_layers.push(IrLayer {
+----             name: l.name,
+----             visible: l.visible,
+----             opacity: l.opacity,
+----             offset: vec2(l.offsetx, l.offsety),
+-----            kind: IrLayerKind::Tiles {
+-----                width: l.width,
+-----                height: l.height,
+-----                data: l.data,
+-----            },
+----+            properties,
+----+            kind: layer_kind,
+----         });
+----     }
+---- 
+----@@ -127,9 +293,123 @@ pub fn decode_map_file_to_ir(path: &str) -> anyhow::Result<(IrMap, PathBuf)> {
+----         IrMap {
+----             tile_w: j.tilewidth,
+----             tile_h: j.tileheight,
+----+            properties: properties_from_json(j.properties),
+----             tilesets: ir_tilesets,
+----             layers: ir_layers,
+----         },
+----         map_dir,
+----     ))
+---- }
+----+
+----+#[cfg(test)]
+----+mod tests {
+----+    use super::*;
+----+    use std::fs;
+----+    use std::time::{SystemTime, UNIX_EPOCH};
+----+
+----+    fn temp_dir() -> PathBuf {
+----+        let nanos = SystemTime::now()
+----+            .duration_since(UNIX_EPOCH)
+----+            .expect("clock went backwards")
+----+            .as_nanos();
+----+        let dir = std::env::temp_dir().join(format!("mq_tiled_props_{nanos}"));
+----+        fs::create_dir_all(&dir).expect("failed to create temp dir");
+----+        dir
+----+    }
+----+
+----+    #[test]
+----+    fn parses_properties_for_map_layer_object_tileset_and_tile() {
+----+        let dir = temp_dir();
+----+        let map_path = dir.join("map.json");
+----+        let ts_path = dir.join("tileset.json");
+----+
+----+        let map_json = r#"{
+----+          "tilewidth": 16,
+----+          "tileheight": 16,
+----+          "properties": [
+----+            {"name":"is_night","type":"bool","value":true},
+----+            {"name":"gravity","type":"float","value":9.8},
+----+            {"name":"theme","type":"string","value":"forest"}
+----+          ],
+----+          "layers": [
+----+            {
+----+              "type":"tilelayer",
+----+              "name":"ground",
+----+              "width":2,
+----+              "height":2,
+----+              "data":[1,0,0,0],
+----+              "properties":[
+----+                {"name":"is_solid","type":"bool","value":true},
+----+                {"name":"difficulty","type":"int","value":3}
+----+              ]
+----+            },
+----+            {
+----+              "type":"objectgroup",
+----+              "name":"spawns",
+----+              "objects":[
+----+                {
+----+                  "id": 7,
+----+                  "name":"spawn_1",
+----+                  "type":"spawn",
+----+                  "properties":[{"name":"kind","type":"string","value":"player"}]
+----+                }
+----+              ],
+----+              "properties":[{"name":"enabled","type":"bool","value":true}]
+----+            }
+----+          ],
+----+          "tilesets":[{"firstgid":1,"source":"tileset.json"}]
+----+        }"#;
+----+
+----+        let tileset_json = r#"{
+----+          "tilewidth":16,
+----+          "tileheight":16,
+----+          "tilecount":4,
+----+          "columns":2,
+----+          "image":"tiles.png",
+----+          "properties":[{"name":"biome","type":"string","value":"forest"}],
+----+          "tiles":[
+----+            {
+----+              "id":0,
+----+              "properties":[{"name":"damage","type":"int","value":10}],
+----+              "objectgroup":{
+----+                "objects":[
+----+                  {"id":1,"name":"hitbox","type":"shape","properties":[{"name":"sensor","type":"bool","value":false}]}
+----+                ]
+----+              }
+----+            }
+----+          ]
+----+        }"#;
+----+
+----+        fs::write(&map_path, map_json).expect("failed to write map");
+----+        fs::write(&ts_path, tileset_json).expect("failed to write tileset");
+----+
+----+        let (ir, _) = decode_map_file_to_ir(map_path.to_str().expect("path utf8")).expect("decode");
+----+
+----+        assert_eq!(ir.properties.get_bool("is_night"), Some(true));
+----+        assert_eq!(ir.properties.get_f32("gravity"), Some(9.8));
+----+        assert_eq!(ir.properties.get_string("theme"), Some("forest"));
+----+
+----+        assert_eq!(ir.layers[0].properties.get_bool("is_solid"), Some(true));
+----+        assert_eq!(ir.layers[0].properties.get_i32("difficulty"), Some(3));
+----+
+----+        match &ir.layers[1].kind {
+----+            IrLayerKind::Objects { objects } => {
+----+                assert_eq!(objects.len(), 1);
+----+                assert_eq!(objects[0].properties.get_string("kind"), Some("player"));
+----+            }
+----+            _ => panic!("expected object layer"),
+----+        }
+----+
+----+        match &ir.tilesets[0] {
+----+            IrTileset::Atlas {
+----+                properties, tiles, ..
+----+            } => {
+----+                assert_eq!(properties.get_string("biome"), Some("forest"));
+----+                assert_eq!(tiles.len(), 1);
+----+                assert_eq!(tiles[0].properties.get_i32("damage"), Some(10));
+----+                assert_eq!(tiles[0].objects.len(), 1);
+----+                assert_eq!(tiles[0].objects[0].properties.get_bool("sensor"), Some(false));
+----+            }
+----+        }
+----+    }
+----+}
+----diff --git a/src/map.rs b/src/map.rs
+----index a2826e7..76e1622 100644
+------- a/src/map.rs
+----+++ b/src/map.rs
+----@@ -1,11 +1,14 @@
+---- use crate::ir_map::*;
+---- use crate::loader::json_loader::*;
+---- use crate::render::*;
+-----use crate::{spatial::CHUNK_SIZE, GlobalIndex, LayerIdx, TileId};
+----+use crate::{
+----+    spatial::{rel, world_to_chunk, ChunkCoord, CHUNK_SIZE},
+----+    GlobalIndex, LayerIdx, TileId,
+----+};
+---- use anyhow::Context;
+---- use macroquad::prelude::*;
+----+use std::collections::HashMap;
+---- use std::path::Path;
+-----use std::thread::yield_now;
+---- 
+---- pub struct TilesetInfo {
+----     pub first_gid: u32,
+----@@ -18,9 +21,27 @@ pub struct TilesetInfo {
+----     pub margin: u32,
+---- }
+---- 
+----+pub struct ObjectLayer {
+----+    pub name: String,
+----+    pub visible: bool,
+----+    pub opacity: f32,
+----+    pub offset: Vec2,
+----+    pub properties: Properties,
+----+    pub objects: Vec<IrObject>,
+----+}
+----+
+----+#[derive(Clone, Copy)]
+----+struct ObjectRec {
+----+    object_idx: usize,
+----+    rel_pos: Vec2,
+----+}
+----+
+---- pub struct Map {
+----     pub index: GlobalIndex,
+----     pub tilesets: Vec<TilesetInfo>,
+----+    object_layers: Vec<ObjectLayer>,
+----+    object_buckets: HashMap<ChunkCoord, HashMap<usize, Vec<ObjectRec>>>,
+----+    debug_draw: bool,
+----     gid_lut: Vec<u16>, //lookup table for tile GIDs to tileset indices
+----     layer_order: Vec<LayerIdx>,
+----     pub tile_w: u32,
+----@@ -41,13 +62,8 @@ impl Map {
+----             match t {
+----                 IrTileset::Atlas {
+----                     first_gid,
+-----                    image,
+-----                    tile_w,
+-----                    tile_h,
+----                     tilecount,
+-----                    columns,
+-----                    spacing,
+-----                    margin,
+----+                    ..
+----                 } => {
+----                     max_gid = max_gid.max(*first_gid + tilecount - 1);
+----                 }
+----@@ -67,6 +83,7 @@ impl Map {
+----                     columns,
+----                     spacing,
+----                     margin,
+----+                    ..
+----                 } => {
+----                     let img_path = base_dir.join(image);
+----                     let tex = load_texture(img_path.to_str().unwrap())
+----@@ -93,36 +110,72 @@ impl Map {
+----         }
+---- 
+----         let mut index = GlobalIndex::new();
+----+        let mut object_layers = Vec::new();
+----+        let mut object_buckets: HashMap<ChunkCoord, HashMap<usize, Vec<ObjectRec>>> =
+----+            HashMap::new();
+----         let mut layer_order: Vec<LayerIdx> = Vec::new();
+---- 
+----         for (lz, layer) in ir.layers.iter().enumerate() {
+----+            if let IrLayerKind::Objects { objects } = &layer.kind {
+----+                let layer_idx = object_layers.len();
+----+                object_layers.push(ObjectLayer {
+----+                    name: layer.name.clone(),
+----+                    visible: layer.visible,
+----+                    opacity: layer.opacity,
+----+                    offset: layer.offset,
+----+                    properties: layer.properties.clone(),
+----+                    objects: objects.clone(),
+----+                });
+----+
+----+                for (object_idx, obj) in objects.iter().enumerate() {
+----+                    let world = vec2(obj.x, obj.y) + layer.offset;
+----+                    let (min, max) = Self::object_aabb_world(obj, layer.offset);
+----+                    let chunk_min = world_to_chunk(min);
+----+                    let chunk_max = world_to_chunk(max);
+----+
+----+                    for cy in chunk_min.y..=chunk_max.y {
+----+                        for cx in chunk_min.x..=chunk_max.x {
+----+                            let cc = ChunkCoord { x: cx, y: cy };
+----+                            let by_layer = object_buckets.entry(cc).or_default();
+----+                            by_layer.entry(layer_idx).or_default().push(ObjectRec {
+----+                                object_idx,
+----+                                rel_pos: rel(world),
+----+                            });
+----+                        }
+----+                    }
+----+                }
+----+                continue;
+----+            }
+----+
+----             let lid = lz as LayerIdx;
+----             let mut inserted_any = false;
+---- 
+-----            let IrLayerKind::Tiles {
+-----                width,
+-----                height,
+-----                data,
+-----            } = &layer.kind;
+-----
+-----            {
+-----                let tw = ir.tile_w as f32;
+-----                let th = ir.tile_h as f32;
+-----
+-----                for (idx, gid) in data.iter().enumerate() {
+-----                    if *gid == 0 {
+-----                        continue;
+-----                    }
+----+            let (width, data) = match &layer.kind {
+----+                IrLayerKind::Tiles {
+----+                    width,
+----+                    height: _,
+----+                    data,
+----+                } => (width, data),
+----+                _ => continue,
+----+            };
+----+
+----+            let tw = ir.tile_w as f32;
+----+            let th = ir.tile_h as f32;
+----+
+----+            for (idx, gid) in data.iter().enumerate() {
+----+                if *gid == 0 {
+----+                    continue;
+----+                }
+---- 
+-----                    let col = idx % *width;
+-----                    let row = idx / *width;
+-----                    let mut world = vec2(col as f32 * tw, row as f32 * th);
+-----                    world += layer.offset;
+----+                let col = idx % *width;
+----+                let row = idx / *width;
+----+                let mut world = vec2(col as f32 * tw, row as f32 * th);
+----+                world += layer.offset;
+---- 
+-----                    index.add_tile(TileId(*gid), lz as LayerIdx, world);
+-----                    inserted_any = true;
+-----                }
+----+                index.add_tile(TileId(*gid), lid, world);
+----+                inserted_any = true;
+----             }
+----+
+----             if inserted_any {
+----                 layer_order.push(lid);
+----             }
+----@@ -131,6 +184,9 @@ impl Map {
+----         Ok(Self {
+----             index,
+----             tilesets,
+----+            object_layers,
+----+            object_buckets,
+----+            debug_draw: false,
+----             gid_lut,
+----             layer_order,
+----             tile_w: ir.tile_w,
+----@@ -138,6 +194,61 @@ impl Map {
+----         })
+----     }
+---- 
+----+    fn object_aabb_world(obj: &IrObject, layer_offset: Vec2) -> (Vec2, Vec2) {
+----+        let origin = vec2(obj.x, obj.y) + layer_offset;
+----+
+----+        match &obj.shape {
+----+            IrObjectShape::Rectangle => {
+----+                let x2 = origin.x + obj.width;
+----+                let y2 = origin.y + obj.height;
+----+                (
+----+                    vec2(origin.x.min(x2), origin.y.min(y2)),
+----+                    vec2(origin.x.max(x2), origin.y.max(y2)),
+----+                )
+----+            }
+----+            IrObjectShape::Point => (
+----+                origin - vec2(0.5, 0.5),
+----+                origin + vec2(0.5, 0.5),
+----+            ),
+----+            IrObjectShape::Polygon(points) | IrObjectShape::Polyline(points) => {
+----+                if points.is_empty() {
+----+                    return (origin - vec2(0.5, 0.5), origin + vec2(0.5, 0.5));
+----+                }
+----+
+----+                let mut min_x = origin.x;
+----+                let mut min_y = origin.y;
+----+                let mut max_x = origin.x;
+----+                let mut max_y = origin.y;
+----+
+----+                for p in points {
+----+                    let wp = origin + *p;
+----+                    min_x = min_x.min(wp.x);
+----+                    min_y = min_y.min(wp.y);
+----+                    max_x = max_x.max(wp.x);
+----+                    max_y = max_y.max(wp.y);
+----+                }
+----+
+----+                (vec2(min_x, min_y), vec2(max_x, max_y))
+----+            }
+----+            IrObjectShape::Tile { .. } => {
+----+                // Tile objects are drawn at (x, y - h), so AABB must match that.
+----+                let w = if obj.width > 0.0 { obj.width } else { 1.0 };
+----+                let h = if obj.height > 0.0 { obj.height } else { 1.0 };
+----+                (vec2(origin.x, origin.y - h), vec2(origin.x + w, origin.y))
+----+            }
+----+        }
+----+    }
+----+
+----+    pub fn object_layers(&self) -> &[ObjectLayer] {
+----+        &self.object_layers
+----+    }
+----+
+----+    pub fn objects(&self) -> impl Iterator<Item = &IrObject> {
+----+        self.object_layers
+----+            .iter()
+----+            .flat_map(|layer| layer.objects.iter())
+----+    }
+----+
+----     #[inline]
+----     fn params_for_flips(
+----         &self,
+----@@ -145,21 +256,20 @@ impl Map {
+----         tile_w: f32,
+----         tile_h: f32,
+----     ) -> (f32, bool, bool, Option<Vec2>) {
+-----        let h = gid.flip_h(); // horizontal flip
+-----        let v = gid.flip_v(); // vertical flip
+-----        let d = gid.flip_d(); // diagonal flip
+----+        let h = gid.flip_h();
+----+        let v = gid.flip_v();
+----+        let d = gid.flip_d();
+---- 
+-----        let flip_x = h ^ d; // flip horizontally if not diagonal
+----+        let flip_x = h ^ d;
+----         let flip_y = v;
+----         let pivot = Some(vec2(tile_w / 2.0, tile_h / 2.0));
+---- 
+----         let rotation = match (h, v, d) {
+-----            (false, _, _) => 0.0, // no flip
+-----
+-----            (true, false, false) => std::f32::consts::FRAC_PI_2, // + 90 degrees (with flip)
+-----            (true, false, true) => std::f32::consts::FRAC_PI_2,  // - 90 defrees
+-----            (true, true, false) => std::f32::consts::FRAC_PI_2,  // + 90 degrees
+-----            (true, true, true) => std::f32::consts::PI,          // 180 degrees
+----+            (false, _, _) => 0.0,
+----+            (true, false, false) => std::f32::consts::FRAC_PI_2,
+----+            (true, false, true) => std::f32::consts::FRAC_PI_2,
+----+            (true, true, false) => std::f32::consts::FRAC_PI_2,
+----+            (true, true, true) => std::f32::consts::PI,
+----         };
+---- 
+----         (rotation, flip_x, flip_y, pivot)
+----@@ -167,27 +277,17 @@ impl Map {
+---- 
+----     #[inline]
+----     fn ts_for_gid(&self, gid: TileId) -> Option<(&TilesetInfo, u32)> {
+-----        // Clean the tile ID by removing flip/rotation flags, keep only the actual ID number
+----         let clean = gid.clean() as usize;
+-----
+-----        // Check if the cleaned ID is within the bounds of our lookup table
+----         if clean >= self.gid_lut.len() {
+----             return None;
+----         }
+---- 
+-----        // Get the tileset index from the lookup table
+----         let idx = self.gid_lut[clean];
+-----
+-----        // If the index is u16::MAX, this means the tile ID doesn't map to any tileset
+----         if idx == u16::MAX {
+----             return None;
+----         }
+---- 
+-----        // Get the tileset info from the tilesets array
+----         let ts = &self.tilesets[idx as usize];
+-----
+-----        // Return the tileset info and the local ID within that tileset
+-----        // The local ID is calculated by subtracting the tileset's first GID from the cleaned tile ID
+----         Some((ts, gid.clean() - ts.first_gid))
+----     }
+---- 
+----@@ -196,6 +296,28 @@ impl Map {
+----         self.draw_chunks(view);
+----     }
+---- 
+----+    pub fn draw(&self, view_min: Vec2, view_max: Vec2) {
+----+        self.draw_visible_rect(view_min, view_max);
+----+        self.draw_objects_tiles(view_min, view_max);
+----+        if self.debug_draw {
+----+            self.draw_objects_debug(view_min, view_max);
+----+        }
+----+    }
+----+
+----+    pub fn set_debug_draw(&mut self, enabled: bool) {
+----+        self.debug_draw = enabled;
+----+    }
+----+
+----+    pub fn draw_objects_debug(&self, view_min: Vec2, view_max: Vec2) {
+----+        let view = query_visible_rect(&self.index, view_min, view_max);
+----+        self.draw_chunk_objects_debug(view);
+----+    }
+----+
+----+    pub fn draw_objects_tiles(&self, view_min: Vec2, view_max: Vec2) {
+----+        let view = query_visible_rect(&self.index, view_min, view_max);
+----+        self.draw_chunk_objects_tiles(view);
+----+    }
+----+
+----     fn draw_chunks(&self, view: LocalView) {
+----         for &layer_id in &self.layer_order {
+----             for LocalChunkView { coord: cc, layers } in &view.chunks {
+----@@ -241,4 +363,172 @@ impl Map {
+----             }
+----         }
+----     }
+----+
+----+    fn draw_chunk_objects_debug(&self, view: LocalView) {
+----+        for (layer_idx, layer) in self.object_layers.iter().enumerate() {
+----+            if !layer.visible {
+----+                continue;
+----+            }
+----+
+----+            let mut drawn = vec![false; layer.objects.len()];
+----+
+----+            for LocalChunkView { coord: cc, .. } in &view.chunks {
+----+                let Some(by_layer) = self.object_buckets.get(cc) else {
+----+                    continue;
+----+                };
+----+                let Some(records) = by_layer.get(&layer_idx) else {
+----+                    continue;
+----+                };
+----+
+----+                for rec in records {
+----+                    if drawn[rec.object_idx] {
+----+                        continue;
+----+                    }
+----+                    drawn[rec.object_idx] = true;
+----+
+----+                    let Some(obj) = layer.objects.get(rec.object_idx) else {
+----+                        continue;
+----+                    };
+----+                    if !obj.visible {
+----+                        continue;
+----+                    }
+----+
+----+                    let origin = vec2(
+----+                        (cc.x * CHUNK_SIZE) as f32 + rec.rel_pos.x,
+----+                        (cc.y * CHUNK_SIZE) as f32 + rec.rel_pos.y,
+----+                    );
+----+
+----+                    match &obj.shape {
+----+                        IrObjectShape::Rectangle => {
+----+                            draw_rectangle_lines(
+----+                                origin.x,
+----+                                origin.y,
+----+                                obj.width.max(2.0),
+----+                                obj.height.max(2.0),
+----+                                2.0,
+----+                                YELLOW,
+----+                            );
+----+                        }
+----+                        IrObjectShape::Point => {
+----+                            draw_circle(origin.x, origin.y, 5.0, GREEN);
+----+                        }
+----+                        IrObjectShape::Polygon(points) => {
+----+                            if points.len() < 2 {
+----+                                continue;
+----+                            }
+----+                            for i in 0..points.len() {
+----+                                let a = origin + points[i];
+----+                                let b = origin + points[(i + 1) % points.len()];
+----+                                draw_line(a.x, a.y, b.x, b.y, 2.0, SKYBLUE);
+----+                            }
+----+                        }
+----+                        IrObjectShape::Polyline(points) => {
+----+                            for seg in points.windows(2) {
+----+                                let a = origin + seg[0];
+----+                                let b = origin + seg[1];
+----+                                draw_line(a.x, a.y, b.x, b.y, 2.0, PINK);
+----+                            }
+----+                        }
+----+                        IrObjectShape::Tile { .. } => {
+----+                            draw_rectangle_lines(
+----+                                origin.x,
+----+                                origin.y - obj.height,
+----+                                obj.width.max(16.0),
+----+                                obj.height.max(16.0),
+----+                                2.0,
+----+                                MAGENTA,
+----+                            );
+----+                        }
+----+                    }
+----+                }
+----+            }
+----+        }
+----+    }
+----+
+----+    fn draw_chunk_objects_tiles(&self, view: LocalView) {
+----+        for (layer_idx, layer) in self.object_layers.iter().enumerate() {
+----+            if !layer.visible {
+----+                continue;
+----+            }
+----+
+----+            let mut drawn = vec![false; layer.objects.len()];
+----+
+----+            for LocalChunkView { coord: cc, .. } in &view.chunks {
+----+                let Some(by_layer) = self.object_buckets.get(cc) else {
+----+                    continue;
+----+                };
+----+                let Some(records) = by_layer.get(&layer_idx) else {
+----+                    continue;
+----+                };
+----+
+----+                for rec in records {
+----+                    if drawn[rec.object_idx] {
+----+                        continue;
+----+                    }
+----+                    drawn[rec.object_idx] = true;
+----+
+----+                    let Some(obj) = layer.objects.get(rec.object_idx) else {
+----+                        continue;
+----+                    };
+----+                    if !obj.visible {
+----+                        continue;
+----+                    }
+----+
+----+                    let IrObjectShape::Tile { gid } = obj.shape else {
+----+                        continue;
+----+                    };
+----+
+----+                    let origin = vec2(
+----+                        (cc.x * CHUNK_SIZE) as f32 + rec.rel_pos.x,
+----+                        (cc.y * CHUNK_SIZE) as f32 + rec.rel_pos.y,
+----+                    );
+----+
+----+                    let gid = TileId(gid);
+----+                    let Some((ts, local)) = self.ts_for_gid(gid) else {
+----+                        continue;
+----+                    };
+----+
+----+                    let col = local % ts.cols;
+----+                    let row = local / ts.cols;
+----+                    let sx = ts.margin + col * (ts.tile_w + ts.spacing);
+----+                    let sy = ts.margin + row * (ts.tile_h + ts.spacing);
+----+
+----+                    let w = if obj.width > 0.0 {
+----+                        obj.width
+----+                    } else {
+----+                        ts.tile_w as f32
+----+                    };
+----+                    let h = if obj.height > 0.0 {
+----+                        obj.height
+----+                    } else {
+----+                        ts.tile_h as f32
+----+                    };
+----+
+----+                    let (flag_rotation, flip_x, flip_y, _) = self.params_for_flips(gid, w, h);
+----+                    let rotation = obj.rotation.to_radians() + flag_rotation;
+----+
+----+                    draw_texture_ex(
+----+                        &ts.tex,
+----+                        origin.x,
+----+                        origin.y - h,
+----+                        WHITE,
+----+                        DrawTextureParams {
+----+                            source: Some(Rect::new(
+----+                                sx as f32,
+----+                                sy as f32,
+----+                                ts.tile_w as f32,
+----+                                ts.tile_h as f32,
+----+                            )),
+----+                            dest_size: Some(vec2(w, h)),
+----+                            rotation,
+----+                            flip_x,
+----+                            flip_y,
+----+                            pivot: Some(vec2(0.0, h)),
+----+                            ..Default::default()
+----+                        },
+----+                    );
+----+                }
+----+            }
+----+        }
+----+    }
+---- }
