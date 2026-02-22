@@ -1,7 +1,7 @@
 use crate::ir_map::*;
 use crate::loader::json_loader::*;
 use crate::render::*;
-use crate::spatial::{rel, world_to_chunk, GlobalIndex, LayerIdx, TileId, CHUNK_SIZE};
+use crate::spatial::{world_to_chunk, GlobalIndex, LayerIdx, TileId, CHUNK_SIZE};
 use crate::MapError;
 use macroquad::prelude::*;
 use std::collections::HashMap;
@@ -348,12 +348,18 @@ impl Map {
                         for cy in chunk_min.y..=chunk_max.y {
                             for cx in chunk_min.x..=chunk_max.x {
                                 let cc = crate::spatial::ChunkCoord { x: cx, y: cy };
+                                let chunk_origin =
+                                    vec2((cc.x * CHUNK_SIZE) as f32, (cc.y * CHUNK_SIZE) as f32);
                                 index.insert_object(
                                     bucket_layer,
                                     cc,
                                     crate::spatial::ObjectRec {
                                         handle: crate::spatial::ObjectHandle(object_idx as u32),
-                                        rel_pos: rel(world),
+                                        // Objects may be inserted into multiple chunks. Store
+                                        // position relative to each inserted chunk so world
+                                        // reconstruction is stable regardless of which bucket
+                                        // is visited first for deduped rendering.
+                                        rel_pos: world - chunk_origin,
                                     },
                                 );
                             }
@@ -941,7 +947,6 @@ impl Map {
 
                     let (flag_rotation, flip_x, flip_y, _) = Self::params_for_flips_gid(gid, w, h);
                     let rotation = obj.rotation.to_radians() + flag_rotation;
-
                     draw_texture_ex(
                         &ts.tex,
                         origin.x,
@@ -958,7 +963,9 @@ impl Map {
                             rotation,
                             flip_x,
                             flip_y,
-                            pivot: Some(vec2(0.0, h)),
+                            // Macroquad expects pivot in screen-space coordinates.
+                            // Keep Tiled-style bottom-left anchoring at the object's (x, y).
+                            pivot: Some(origin),
                         },
                     );
                 }
@@ -1340,6 +1347,27 @@ mod tests {
         assert_eq!(chunk_max.x, 1);
         assert_eq!(chunk_min.y, 0);
         assert_eq!(chunk_max.y, 0);
+    }
+
+    #[test]
+    fn multi_chunk_object_reconstructs_same_world_pos_from_any_bucket() {
+        let world = vec2(591.5974, 604.84875);
+        let rel_home = crate::spatial::rel(world);
+        let chunk_home = world_to_chunk(world);
+        assert_eq!(chunk_home.x, 2);
+        assert_eq!(chunk_home.y, 2);
+
+        // Simulate a tall object spanning into the chunk above.
+        let cc_other = crate::spatial::ChunkCoord { x: 2, y: 1 };
+        let wrong_origin = vec2((cc_other.x * CHUNK_SIZE) as f32, (cc_other.y * CHUNK_SIZE) as f32)
+            + rel_home;
+        assert_ne!(wrong_origin.y, world.y);
+
+        let correct_rel =
+            world - vec2((cc_other.x * CHUNK_SIZE) as f32, (cc_other.y * CHUNK_SIZE) as f32);
+        let rebuilt =
+            vec2((cc_other.x * CHUNK_SIZE) as f32, (cc_other.y * CHUNK_SIZE) as f32) + correct_rel;
+        assert_eq!(rebuilt, world);
     }
 
     #[test]
