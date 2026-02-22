@@ -1,0 +1,18 @@
+{
+  "tilewidth": 16,
+  "tileheight": 16,
+  "tilecount": 4,
+  "columns": 2,
+  "image": "props_tiles.png",
+  "properties": [
+    { "name": "biome", "type": "string", "value": "forest" }
+  ],
+  "tiles": [
+    {
+      "id": 0,
+      "properties": [
+        { "name": "damage", "type": "int", "value": 10 }
+      ]
+    }
+  ]
+}

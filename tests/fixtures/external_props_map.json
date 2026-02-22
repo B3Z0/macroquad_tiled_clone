@@ -1,0 +1,46 @@
+{
+  "tilewidth": 16,
+  "tileheight": 16,
+  "properties": [
+    { "name": "theme", "type": "string", "value": "forest" }
+  ],
+  "layers": [
+    {
+      "type": "tilelayer",
+      "name": "bg",
+      "width": 2,
+      "height": 1,
+      "data": [1, 0],
+      "properties": [
+        { "name": "parallax", "type": "float", "value": 0.5 }
+      ]
+    },
+    {
+      "type": "objectgroup",
+      "name": "objects",
+      "objects": [
+        {
+          "id": 7,
+          "name": "spawn",
+          "type": "point",
+          "x": 8,
+          "y": 8,
+          "point": true,
+          "properties": [
+            { "name": "kind", "type": "string", "value": "player" }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "tilelayer",
+      "name": "fg",
+      "width": 2,
+      "height": 1,
+      "data": [0, 1]
+    }
+  ],
+  "tilesets": [
+    { "firstgid": 1, "source": "props_tileset.json" }
+  ]
+}

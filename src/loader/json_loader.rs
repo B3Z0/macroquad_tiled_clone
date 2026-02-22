@@ -1,6 +1,6 @@
 // src/loader/json.rs
+use crate::error::MapError;
 use crate::ir_map::*;
-use anyhow::Context;
 use macroquad::prelude::*;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
@@ -135,44 +135,49 @@ struct JsonTile {
     objectgroup: JsonObjectGroup,
 }
 
-fn json_property_to_ir(prop: JsonProperty) -> Option<(String, PropertyValue)> {
-    let value = match prop.kind.as_deref() {
-        Some("bool") => prop.value.as_bool().map(PropertyValue::Bool),
-        Some("int") | Some("object") => prop.value.as_i64().map(PropertyValue::I64),
-        Some("float") => prop.value.as_f64().map(|n| PropertyValue::F32(n as f32)),
-        Some("string") | Some("file") | Some("color") | Some("class") => prop
-            .value
-            .as_str()
-            .map(|s| PropertyValue::String(s.to_owned())),
-        _ => {
-            if let Some(v) = prop.value.as_bool() {
+fn json_property_to_ir(prop: JsonProperty) -> Result<Option<(String, PropertyValue)>, MapError> {
+    let JsonProperty { name, kind, value } = prop;
+
+    let parsed = match kind.as_deref() {
+        Some("bool") => value.as_bool().map(PropertyValue::Bool),
+        Some("int") | Some("object") => value.as_i64().map(PropertyValue::I64),
+        Some("float") => value.as_f64().map(|n| PropertyValue::F32(n as f32)),
+        Some("string") | Some("file") | Some("color") | Some("class") => {
+            value.as_str().map(|s| PropertyValue::String(s.to_owned()))
+        }
+        Some(other) => {
+            return Err(MapError::UnsupportedPropertyType {
+                name,
+                kind: other.to_owned(),
+            });
+        }
+        None => {
+            if let Some(v) = value.as_bool() {
                 Some(PropertyValue::Bool(v))
-            } else if let Some(v) = prop.value.as_i64() {
+            } else if let Some(v) = value.as_i64() {
                 Some(PropertyValue::I64(v))
-            } else if let Some(v) = prop.value.as_f64() {
+            } else if let Some(v) = value.as_f64() {
                 Some(PropertyValue::F32(v as f32))
             } else {
-                prop.value
-                    .as_str()
-                    .map(|s| PropertyValue::String(s.to_owned()))
+                value.as_str().map(|s| PropertyValue::String(s.to_owned()))
             }
         }
-    }?;
+    };
 
-    Some((prop.name, value))
+    Ok(parsed.map(|value| (name, value)))
 }
 
-fn properties_from_json(props: Vec<JsonProperty>) -> Properties {
+fn properties_from_json(props: Vec<JsonProperty>) -> Result<Properties, MapError> {
     let mut out = Properties::new();
     for p in props {
-        if let Some((name, value)) = json_property_to_ir(p) {
+        if let Some((name, value)) = json_property_to_ir(p)? {
             out.insert(name, value);
         }
     }
-    out
+    Ok(out)
 }
 
-fn object_to_ir(obj: JsonObject) -> IrObject {
+fn object_to_ir(obj: JsonObject) -> Result<IrObject, MapError> {
     let shape = if let Some(gid) = obj.gid {
         IrObjectShape::Tile { gid }
     } else if obj.point {
@@ -191,7 +196,7 @@ fn object_to_ir(obj: JsonObject) -> IrObject {
         obj.kind
     };
 
-    IrObject {
+    Ok(IrObject {
         id: obj.id,
         name: obj.name,
         class_name,
@@ -202,20 +207,26 @@ fn object_to_ir(obj: JsonObject) -> IrObject {
         rotation: obj.rotation,
         visible: obj.visible,
         shape,
-        properties: properties_from_json(obj.properties),
-    }
+        properties: properties_from_json(obj.properties)?,
+    })
 }
 
-pub fn decode_map_file_to_ir(path: &str) -> anyhow::Result<(IrMap, PathBuf)> {
+pub fn decode_map_file_to_ir(path: &str) -> Result<(IrMap, PathBuf), MapError> {
     let p = Path::new(path);
-    anyhow::ensure!(
-        p.extension().and_then(|e| e.to_str()) == Some("json"),
-        "Map file must be a JSON file: {path}"
-    );
+    if p.extension().and_then(|e| e.to_str()) != Some("json") {
+        return Err(MapError::InvalidMap(format!(
+            "Map file must be a JSON file: {path}"
+        )));
+    }
 
-    let txt = std::fs::read_to_string(p).with_context(|| format!("Reading map file {path}"))?;
-    let j: JsonMap =
-        serde_json::from_str(&txt).with_context(|| format!("Parsing map file {path}"))?;
+    let txt = std::fs::read_to_string(p).map_err(|source| MapError::Io {
+        path: p.to_path_buf(),
+        source,
+    })?;
+    let j: JsonMap = serde_json::from_str(&txt).map_err(|source| MapError::Json {
+        path: p.to_path_buf(),
+        source,
+    })?;
 
     let map_dir = p
         .parent()
@@ -225,13 +236,22 @@ pub fn decode_map_file_to_ir(path: &str) -> anyhow::Result<(IrMap, PathBuf)> {
     // Build IR tilesets
     let mut ir_tilesets = Vec::with_capacity(j.tilesets.len());
     for ts in &j.tilesets {
-        anyhow::ensure!(
-            ts.source.ends_with(".json"),
-            "External tileset must be JSON: {}",
-            ts.source
-        );
-        let ext_txt = std::fs::read_to_string(map_dir.join(&ts.source))?;
-        let ext: ExternalTileset = serde_json::from_str(&ext_txt)?;
+        if !ts.source.ends_with(".json") {
+            return Err(MapError::InvalidMap(format!(
+                "External tileset must be JSON: {}",
+                ts.source
+            )));
+        }
+        let ts_path = map_dir.join(&ts.source);
+        let ext_txt = std::fs::read_to_string(&ts_path).map_err(|source| MapError::Io {
+            path: ts_path.clone(),
+            source,
+        })?;
+        let ext: ExternalTileset =
+            serde_json::from_str(&ext_txt).map_err(|source| MapError::Json {
+                path: ts_path,
+                source,
+            })?;
 
         // (We keep image path relative; Map::from_ir will join with map_dir)
         ir_tilesets.push(IrTileset::Atlas {
@@ -243,21 +263,23 @@ pub fn decode_map_file_to_ir(path: &str) -> anyhow::Result<(IrMap, PathBuf)> {
             columns: ext.columns,
             spacing: ext.spacing,
             margin: ext.margin,
-            properties: properties_from_json(ext.properties),
+            properties: properties_from_json(ext.properties)?,
             tiles: ext
                 .tiles
                 .into_iter()
-                .map(|tile| IrTileMetadata {
-                    id: tile.id,
-                    properties: properties_from_json(tile.properties),
-                    objects: tile
-                        .objectgroup
-                        .objects
-                        .into_iter()
-                        .map(object_to_ir)
-                        .collect(),
+                .map(|tile| -> Result<IrTileMetadata, MapError> {
+                    Ok(IrTileMetadata {
+                        id: tile.id,
+                        properties: properties_from_json(tile.properties)?,
+                        objects: tile
+                            .objectgroup
+                            .objects
+                            .into_iter()
+                            .map(object_to_ir)
+                            .collect::<Result<Vec<_>, _>>()?,
+                    })
                 })
-                .collect(),
+                .collect::<Result<Vec<_>, _>>()?,
         });
     }
 
@@ -266,18 +288,60 @@ pub fn decode_map_file_to_ir(path: &str) -> anyhow::Result<(IrMap, PathBuf)> {
         IrTileset::Atlas { first_gid, .. } => *first_gid,
     });
 
+    let max_gid = ir_tilesets
+        .iter()
+        .map(|t| match t {
+            IrTileset::Atlas {
+                first_gid,
+                tilecount,
+                ..
+            } => first_gid + tilecount - 1,
+        })
+        .max()
+        .unwrap_or(0);
+
     // Build IR layers
     let mut ir_layers = Vec::with_capacity(j.layers.len());
     for l in j.layers {
-        let properties = properties_from_json(l.properties);
+        let layer_name = l.name.clone();
+        let properties = properties_from_json(l.properties)?;
         let layer_kind = match l.kind.as_deref().unwrap_or("tilelayer") {
-            "tilelayer" => IrLayerKind::Tiles {
-                width: l.width,
-                height: l.height,
-                data: l.data,
-            },
+            "tilelayer" => {
+                for &raw_gid in &l.data {
+                    let gid = raw_gid & crate::spatial::GID_MASK;
+                    if gid != 0 && gid > max_gid {
+                        return Err(MapError::InvalidTileGid {
+                            layer: layer_name.clone(),
+                            gid,
+                            max_gid,
+                        });
+                    }
+                }
+                IrLayerKind::Tiles {
+                    width: l.width,
+                    height: l.height,
+                    data: l.data,
+                }
+            }
             "objectgroup" => IrLayerKind::Objects {
-                objects: l.objects.into_iter().map(object_to_ir).collect(),
+                objects: l
+                    .objects
+                    .into_iter()
+                    .map(|obj| {
+                        if let Some(raw_gid) = obj.gid {
+                            let gid = raw_gid & crate::spatial::GID_MASK;
+                            if gid == 0 || gid > max_gid {
+                                return Err(MapError::InvalidObjectGid {
+                                    layer: layer_name.clone(),
+                                    object_id: obj.id,
+                                    gid,
+                                    max_gid,
+                                });
+                            }
+                        }
+                        object_to_ir(obj)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
             },
             _ => IrLayerKind::Unsupported,
         };
@@ -295,7 +359,7 @@ pub fn decode_map_file_to_ir(path: &str) -> anyhow::Result<(IrMap, PathBuf)> {
         IrMap {
             tile_w: j.tilewidth,
             tile_h: j.tileheight,
-            properties: properties_from_json(j.properties),
+            properties: properties_from_json(j.properties)?,
             tilesets: ir_tilesets,
             layers: ir_layers,
         },
@@ -448,5 +512,106 @@ mod tests {
         let (ir, _) = decode_map_file_to_ir(map_path.to_str().expect("path utf8")).expect("decode");
         assert_eq!(ir.properties.get_i64("big_id"), Some(5_000_000_000));
         assert_eq!(ir.properties.get_i32("big_id"), None);
+    }
+
+    #[test]
+    fn returns_typed_error_for_malformed_json() {
+        let dir = temp_dir();
+        let map_path = dir.join("map.json");
+        fs::write(&map_path, "{ not json").expect("failed to write map");
+
+        let err = decode_map_file_to_ir(map_path.to_str().expect("path utf8"))
+            .err()
+            .expect("expected decode error");
+        assert!(matches!(err, MapError::Json { .. }));
+    }
+
+    #[test]
+    fn returns_typed_error_for_missing_tileset_file() {
+        let dir = temp_dir();
+        let map_path = dir.join("map.json");
+        let map_json = r#"{
+          "tilewidth": 16,
+          "tileheight": 16,
+          "layers": [],
+          "tilesets":[{"firstgid":1,"source":"missing_tileset.json"}]
+        }"#;
+        fs::write(&map_path, map_json).expect("failed to write map");
+
+        let err = decode_map_file_to_ir(map_path.to_str().expect("path utf8"))
+            .err()
+            .expect("expected decode error");
+        assert!(matches!(err, MapError::Io { .. }));
+    }
+
+    #[test]
+    fn returns_typed_error_for_invalid_gid_reference() {
+        let dir = temp_dir();
+        let map_path = dir.join("map.json");
+        let ts_path = dir.join("tileset.json");
+
+        let map_json = r#"{
+          "tilewidth": 16,
+          "tileheight": 16,
+          "layers": [
+            {
+              "type":"tilelayer",
+              "name":"ground",
+              "width":1,
+              "height":1,
+              "data":[99]
+            }
+          ],
+          "tilesets":[{"firstgid":1,"source":"tileset.json"}]
+        }"#;
+
+        let tileset_json = r#"{
+          "tilewidth":16,
+          "tileheight":16,
+          "tilecount":1,
+          "columns":1,
+          "image":"tiles.png"
+        }"#;
+
+        fs::write(&map_path, map_json).expect("failed to write map");
+        fs::write(&ts_path, tileset_json).expect("failed to write tileset");
+
+        let err = decode_map_file_to_ir(map_path.to_str().expect("path utf8"))
+            .err()
+            .expect("expected decode error");
+        assert!(matches!(err, MapError::InvalidTileGid { .. }));
+    }
+
+    #[test]
+    fn returns_typed_error_for_unknown_property_type() {
+        let dir = temp_dir();
+        let map_path = dir.join("map.json");
+        let ts_path = dir.join("tileset.json");
+
+        let map_json = r#"{
+          "tilewidth": 16,
+          "tileheight": 16,
+          "properties": [
+            {"name":"mystery","type":"not_supported","value":"x"}
+          ],
+          "layers": [],
+          "tilesets":[{"firstgid":1,"source":"tileset.json"}]
+        }"#;
+
+        let tileset_json = r#"{
+          "tilewidth":16,
+          "tileheight":16,
+          "tilecount":1,
+          "columns":1,
+          "image":"tiles.png"
+        }"#;
+
+        fs::write(&map_path, map_json).expect("failed to write map");
+        fs::write(&ts_path, tileset_json).expect("failed to write tileset");
+
+        let err = decode_map_file_to_ir(map_path.to_str().expect("path utf8"))
+            .err()
+            .expect("expected decode error");
+        assert!(matches!(err, MapError::UnsupportedPropertyType { .. }));
     }
 }

@@ -1,0 +1,23 @@
+{
+  "tilewidth": 16,
+  "tileheight": 16,
+  "layers": [
+    {
+      "type": "objectgroup",
+      "name": "objects",
+      "objects": [
+        {
+          "id": 1,
+          "name": "wide_rect",
+          "x": 250,
+          "y": 10,
+          "width": 20,
+          "height": 20
+        }
+      ]
+    }
+  ],
+  "tilesets": [
+    { "firstgid": 1, "source": "basic_tileset.json" }
+  ]
+}

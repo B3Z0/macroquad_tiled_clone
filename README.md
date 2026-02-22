@@ -2,7 +2,7 @@
 
 Minimal Tiled JSON loader and renderer for Macroquad.
 
-## Supports
+## Supported
 
 - Tiled JSON maps (orthogonal) with external tilesets (`source` .json)
 - Tile layers (finite) with `data` arrays
@@ -16,7 +16,7 @@ Minimal Tiled JSON loader and renderer for Macroquad.
 - Universal draw API: `map.draw(view_min, view_max)` (tiles + tile-objects)
 - Optional debug outlines via `set_debug_draw(true)`
 
-## Not yet
+## Not Supported
 
 - Infinite maps (chunked layers)
 - Image layers
@@ -30,6 +30,11 @@ Minimal Tiled JSON loader and renderer for Macroquad.
 
 - `draw(view_min, view_max)`: draws tiles + tile-objects, and draws debug outlines when `debug_draw` is enabled.
 - `draw_visible_rect(view_min, view_max)`: draws tiles only (advanced/manual flow).
+- Stable usage pattern: call `map.draw(Vec2::ZERO, vec2(screen_width(), screen_height()))` once per frame.
+- Advanced/manual object composition:
+  - `let stamp = map.next_frame_stamp();`
+  - `map.draw_objects_tiles_with_stamp(view_min, view_max, stamp);`
+  - `map.draw_objects_debug_with_stamp(view_min, view_max, stamp);`
 
 ## Quickstart
 
@@ -41,14 +46,22 @@ Minimal Tiled JSON loader and renderer for Macroquad.
    ```bash
    cargo run --example basic_map
    ```
+   To run examples for a fixed number of frames (useful for CI/local checks):
+   ```bash
+   MQ_FRAMES=5 cargo run --example basic_map
+   ```
+   PowerShell:
+   ```powershell
+   $env:MQ_FRAMES='5'; cargo run --example basic_map
+   ```
 3. Load and draw a map:
    ```rust
    use macroquad::prelude::*;
-   use macroquad_tiled_clone::map::Map;
+   use macroquad_tiled_clone::Map;
 
    #[macroquad::main("My Game")]
    async fn main() {
-       let map = Map::load("assets2/map.json")
+       let mut map = Map::load("assets2/map.json")
            .await
            .expect("Failed to load map");
 

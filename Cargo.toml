@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2021"
 authors = ["B3Z0 <vlad.cotiga75@gmail.com>"]
 license = "MIT OR Apache-2.0"
-description = "Minimal Tiled JSON loader & renderer for Macroquad"
-repository = "https://github.com/B3Z0/macroquad_tiled_clone.git"
+description = "Tiled JSON renderer and spatial index for macroquad"
+repository = "https://github.com/B3Z0/macroquad_tiled_clone"
 readme = "README.md"
-keywords = ["tiled", "macroquad", "tilemap", "gamedev"]
-categories = ["game-development", "graphics"]
+keywords = ["macroquad", "tiled", "tilemap", "game", "rpg"]
+categories = ["game-development"]
 
 [dependencies]
 macroquad = "0.4"               # for rendering & textures

@@ -1,0 +1,7 @@
+{
+  "tilewidth": 16,
+  "tileheight": 16,
+  "tilecount": 4,
+  "columns": 2,
+  "image": "basic_tiles.png"
+}

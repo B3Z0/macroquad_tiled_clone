@@ -1,0 +1,19 @@
+{
+  "tilewidth": 16,
+  "tileheight": 16,
+  "layers": [
+    {
+      "type": "tilelayer",
+      "name": "ground",
+      "width": 40,
+      "height": 1,
+      "data": [
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+      ]
+    }
+  ],
+  "tilesets": [
+    { "firstgid": 1, "source": "basic_tileset.json" }
+  ]
+}
