@@ -1359,14 +1359,21 @@ mod tests {
 
         // Simulate a tall object spanning into the chunk above.
         let cc_other = crate::spatial::ChunkCoord { x: 2, y: 1 };
-        let wrong_origin = vec2((cc_other.x * CHUNK_SIZE) as f32, (cc_other.y * CHUNK_SIZE) as f32)
-            + rel_home;
+        let wrong_origin = vec2(
+            (cc_other.x * CHUNK_SIZE) as f32,
+            (cc_other.y * CHUNK_SIZE) as f32,
+        ) + rel_home;
         assert_ne!(wrong_origin.y, world.y);
 
-        let correct_rel =
-            world - vec2((cc_other.x * CHUNK_SIZE) as f32, (cc_other.y * CHUNK_SIZE) as f32);
-        let rebuilt =
-            vec2((cc_other.x * CHUNK_SIZE) as f32, (cc_other.y * CHUNK_SIZE) as f32) + correct_rel;
+        let correct_rel = world
+            - vec2(
+                (cc_other.x * CHUNK_SIZE) as f32,
+                (cc_other.y * CHUNK_SIZE) as f32,
+            );
+        let rebuilt = vec2(
+            (cc_other.x * CHUNK_SIZE) as f32,
+            (cc_other.y * CHUNK_SIZE) as f32,
+        ) + correct_rel;
         assert_eq!(rebuilt, world);
     }
 
