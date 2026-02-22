@@ -12,7 +12,7 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    let map = Map::load("assets2/map.json")
+    let mut map = Map::load("assets2/map.json")
         .await
         .expect("Failed to load map");
 

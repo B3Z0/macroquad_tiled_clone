@@ -5,23 +5,31 @@ Minimal Tiled JSON loader and renderer for Macroquad.
 ## Supports
 
 - Tiled JSON maps (orthogonal) with external tilesets (`source` .json)
-- Tile layers with `data` arrays
+- Tile layers (finite) with `data` arrays
 - Object layers (`objectgroup`)
+- Tile objects (`gid`)
 - Multiple tilesets (firstgid mapping)
 - Per-layer offsets
 - Properties on map/layer/object/tileset/tile
 - Tile flip/rotation flags from Tiled GIDs
 - Rendering via `draw_texture_ex` with nearest filtering
 - Universal draw API: `map.draw(view_min, view_max)` (tiles + tile-objects)
+- Optional debug outlines via `set_debug_draw(true)`
 
 ## Not yet
 
-- Inline tilesets
-- Image layers
 - Infinite maps (chunked layers)
+- Image layers
+- Group layers
+- Embedded tilesets
+- Base64/compressed layer data
 - Isometric or hex maps
 - Tile animations
-- Layer visibility/opacity in rendering
+
+## Rendering API
+
+- `draw(view_min, view_max)`: draws tiles + tile-objects, and draws debug outlines when `debug_draw` is enabled.
+- `draw_visible_rect(view_min, view_max)`: draws tiles only (advanced/manual flow).
 
 ## Quickstart
 
@@ -58,4 +66,3 @@ Minimal Tiled JSON loader and renderer for Macroquad.
 - Tilesets must be external JSON tilesets with a single atlas image.
 - Unsupported layer kinds are skipped.
 - Infinite maps are not supported (no chunked `layers[].chunks`).
-- Layer `visible` and `opacity` are loaded but not applied at draw time.

@@ -68,8 +68,20 @@ pub struct TileRec {
     pub rel_pos: Vec2,
 }
 
+#[derive(Debug, Clone)]
+pub struct ObjectRec {
+    pub id: u32,
+    pub rel_pos: Vec2,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct LayerBucket {
+    pub tiles: Vec<TileRec>,
+    pub objects: Vec<ObjectRec>,
+}
+
 pub struct GlobalChunk {
-    pub layers: HashMap<LayerIdx, Vec<TileRec>>,
+    pub layers: HashMap<LayerIdx, LayerBucket>,
 }
 
 impl GlobalChunk {
@@ -114,7 +126,7 @@ impl GlobalIndex {
         let cc = world_to_chunk(world);
         let handle = self.alloc_handle();
         let bucket = self.buckets.entry(cc).or_insert_with(GlobalChunk::new);
-        let vec = bucket.layers.entry(layer).or_insert_with(Vec::new);
+        let vec = &mut bucket.layers.entry(layer).or_default().tiles;
 
         let idx = vec.len();
         vec.push(TileRec {
@@ -128,5 +140,15 @@ impl GlobalIndex {
             index: idx,
         });
         handle
+    }
+
+    pub fn insert_object(&mut self, layer: LayerIdx, chunk: ChunkCoord, object_rec: ObjectRec) {
+        let bucket = self.buckets.entry(chunk).or_insert_with(GlobalChunk::new);
+        bucket
+            .layers
+            .entry(layer)
+            .or_default()
+            .objects
+            .push(object_rec);
     }
 }
