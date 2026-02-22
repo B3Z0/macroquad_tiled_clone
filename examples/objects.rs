@@ -15,6 +15,10 @@ async fn main() {
     let mut map = Map::load("assets2/map.json")
         .await
         .expect("Failed to load map");
+    let max_frames = std::env::var("MQ_FRAMES")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok());
+    let mut frame_count = 0u64;
 
     println!("object_layers={}", map.object_layers().len());
     println!("objects={}", map.objects().count());
@@ -30,5 +34,11 @@ async fn main() {
 
         draw_text("objects example", 20.0, 30.0, 32.0, WHITE);
         next_frame().await;
+        frame_count += 1;
+        if let Some(max) = max_frames {
+            if frame_count >= max {
+                break;
+            }
+        }
     }
 }

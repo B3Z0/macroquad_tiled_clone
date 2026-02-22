@@ -16,6 +16,10 @@ async fn main() {
     let mut map = Map::load("assets2/map.json")
         .await
         .expect("Failed to load map");
+    let max_frames = std::env::var("MQ_FRAMES")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok());
+    let mut frame_count = 0u64;
 
     let screen_size = Vec2::new(screen_width(), screen_height());
 
@@ -34,5 +38,11 @@ async fn main() {
         );
 
         next_frame().await;
+        frame_count += 1;
+        if let Some(max) = max_frames {
+            if frame_count >= max {
+                break;
+            }
+        }
     }
 }

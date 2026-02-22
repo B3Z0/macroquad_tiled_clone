@@ -32,6 +32,8 @@ pub struct ObjectLayer {
     pub properties: Properties,
     pub objects: Vec<IrObject>,
     bucket_layer: LayerIdx,
+    // Separate dedupe buffers let tile-object rendering and debug overlay
+    // each draw an object once per frame, using the same frame stamp.
     seen_stamp_tiles: Vec<u32>,
     seen_stamp_debug: Vec<u32>,
 }
@@ -56,6 +58,7 @@ pub struct Map {
     object_layers: Vec<ObjectLayer>,
     debug_draw: bool,
     frame_stamp: u32,
+    cull_padding: f32,
     gid_lut: Vec<u16>, //lookup table for tile GIDs to tileset indices
     tile_layers: Vec<TileLayerDrawInfo>,
     draw_order: Vec<LayerId>,
@@ -215,6 +218,7 @@ impl Map {
             object_layers,
             debug_draw: false,
             frame_stamp: 0,
+            cull_padding: CHUNK_SIZE as f32,
             gid_lut,
             tile_layers,
             draw_order,
@@ -266,17 +270,17 @@ impl Map {
         }
     }
 
-    fn next_stamp(frame_stamp: &mut u32, object_layers: &mut [ObjectLayer]) -> u32 {
-        if *frame_stamp == u32::MAX {
-            for layer in object_layers {
+    fn next_frame_stamp(&mut self) -> u32 {
+        if self.frame_stamp == u32::MAX {
+            for layer in &mut self.object_layers {
                 layer.seen_stamp_tiles.fill(0);
                 layer.seen_stamp_debug.fill(0);
             }
-            *frame_stamp = 1;
+            self.frame_stamp = 1;
             return 1;
         }
-        *frame_stamp += 1;
-        *frame_stamp
+        self.frame_stamp += 1;
+        self.frame_stamp
     }
 
     pub fn object_layers(&self) -> &[ObjectLayer] {
@@ -355,10 +359,11 @@ impl Map {
     }
 
     pub fn draw(&mut self, view_min: Vec2, view_max: Vec2) {
-        let coords = Self::visible_coords_for_draw(view_min, view_max);
-        let draw_order = self.draw_order.clone();
-        for layer_id in &draw_order {
-            let Some(kind) = self.layer_kind_by_id.get(layer_id).copied() else {
+        let coords = self.visible_coords_for_draw(view_min, view_max);
+        let stamp = self.next_frame_stamp();
+        for i in 0..self.draw_order.len() {
+            let layer_id = self.draw_order[i];
+            let Some(kind) = self.layer_kind_by_id.get(&layer_id).copied() else {
                 continue;
             };
             match kind {
@@ -366,11 +371,8 @@ impl Map {
                     self.draw_tile_layer_from_coords(&coords, tile_layer_idx);
                 }
                 LayerKindInfo::Objects(object_layer_idx) => {
-                    let stamp = Self::next_stamp(&mut self.frame_stamp, &mut self.object_layers);
                     self.draw_object_tiles_layer_from_coords(&coords, object_layer_idx, stamp);
                     if self.debug_draw {
-                        let stamp =
-                            Self::next_stamp(&mut self.frame_stamp, &mut self.object_layers);
                         self.draw_object_debug_layer_from_coords(&coords, object_layer_idx, stamp);
                     }
                 }
@@ -383,13 +385,17 @@ impl Map {
         self.debug_draw = enabled;
     }
 
+    pub fn set_cull_padding(&mut self, padding: f32) {
+        self.cull_padding = padding.max(0.0);
+    }
+
     pub fn draw_objects_debug(&mut self, view_min: Vec2, view_max: Vec2) {
-        let coords = Self::visible_coords_for_draw(view_min, view_max);
+        let coords = self.visible_coords_for_draw(view_min, view_max);
         self.draw_chunk_objects_debug_coords(&coords);
     }
 
     pub fn draw_objects_tiles(&mut self, view_min: Vec2, view_max: Vec2) {
-        let coords = Self::visible_coords_for_draw(view_min, view_max);
+        let coords = self.visible_coords_for_draw(view_min, view_max);
         self.draw_chunk_objects_tiles_coords(&coords);
     }
 
@@ -512,14 +518,14 @@ impl Map {
     }
 
     fn draw_chunk_objects_debug_coords(&mut self, coords: &[crate::spatial::ChunkCoord]) {
-        let stamp = Self::next_stamp(&mut self.frame_stamp, &mut self.object_layers);
+        let stamp = self.next_frame_stamp();
         for layer_idx in 0..self.object_layers.len() {
             self.draw_object_debug_layer_from_coords(coords, layer_idx, stamp);
         }
     }
 
     fn draw_chunk_objects_tiles_coords(&mut self, coords: &[crate::spatial::ChunkCoord]) {
-        let stamp = Self::next_stamp(&mut self.frame_stamp, &mut self.object_layers);
+        let stamp = self.next_frame_stamp();
         for layer_idx in 0..self.object_layers.len() {
             self.draw_object_tiles_layer_from_coords(coords, layer_idx, stamp);
         }
@@ -718,8 +724,12 @@ impl Map {
         }
     }
 
-    fn visible_coords_for_draw(view_min: Vec2, view_max: Vec2) -> Vec<crate::spatial::ChunkCoord> {
-        let pad = CHUNK_SIZE as f32;
+    fn visible_coords_for_draw(
+        &self,
+        view_min: Vec2,
+        view_max: Vec2,
+    ) -> Vec<crate::spatial::ChunkCoord> {
+        let pad = self.cull_padding;
         visible_chunk_coords_rect(
             vec2(view_min.x - pad, view_min.y - pad),
             vec2(view_max.x + pad, view_max.y + pad),
