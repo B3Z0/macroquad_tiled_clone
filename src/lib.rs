@@ -2,6 +2,7 @@
 
 //! Minimal Tiled JSON loader/renderer for Macroquad.
 
+mod core;
 mod error;
 #[allow(dead_code)]
 mod ir_map;
@@ -16,4 +17,4 @@ mod spatial;
 
 pub use error::MapError;
 pub use ir_map::{IrObject, IrObjectShape, Properties, PropertyValue};
-pub use map::{LayerId, Map, ObjectLayer};
+pub use map::{LayerId, Map, MapData, ObjectLayer};

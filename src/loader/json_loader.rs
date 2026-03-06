@@ -211,6 +211,72 @@ fn object_to_ir(obj: JsonObject) -> Result<IrObject, MapError> {
     })
 }
 
+fn validate_map_tile_dimensions(tile_w: u32, tile_h: u32) -> Result<(), MapError> {
+    if tile_w == 0 || tile_h == 0 {
+        return Err(MapError::InvalidMap(format!(
+            "Map tile dimensions must be non-zero (tilewidth={}, tileheight={})",
+            tile_w, tile_h
+        )));
+    }
+    Ok(())
+}
+
+fn validate_external_tileset(
+    ts_source: &str,
+    first_gid: u32,
+    ext: &ExternalTileset,
+) -> Result<(), MapError> {
+    if ext.tilewidth == 0 || ext.tileheight == 0 {
+        return Err(MapError::InvalidMap(format!(
+            "Tileset '{}' has non-positive tile size (tilewidth={}, tileheight={})",
+            ts_source, ext.tilewidth, ext.tileheight
+        )));
+    }
+    if ext.tilecount == 0 {
+        return Err(MapError::InvalidMap(format!(
+            "Tileset '{}' has tilecount=0 (firstgid={})",
+            ts_source, first_gid
+        )));
+    }
+    if ext.columns == 0 {
+        return Err(MapError::InvalidMap(format!(
+            "Tileset '{}' has columns=0 (firstgid={})",
+            ts_source, first_gid
+        )));
+    }
+
+    Ok(())
+}
+
+fn validate_tile_layer_shape(layer_name: &str, l: &JsonLayer) -> Result<(), MapError> {
+    if l.width == 0 || l.height == 0 {
+        return Err(MapError::InvalidMap(format!(
+            "Tile layer '{}' must have non-zero width/height (width={}, height={})",
+            layer_name, l.width, l.height
+        )));
+    }
+
+    let expected = l.width.checked_mul(l.height).ok_or_else(|| {
+        MapError::InvalidMap(format!(
+            "Tile layer '{}' dimensions overflow usize (width={}, height={})",
+            layer_name, l.width, l.height
+        ))
+    })?;
+
+    if l.data.len() != expected {
+        return Err(MapError::InvalidMap(format!(
+            "Tile layer '{}' data length mismatch: got {}, expected {} ({}x{})",
+            layer_name,
+            l.data.len(),
+            expected,
+            l.width,
+            l.height
+        )));
+    }
+
+    Ok(())
+}
+
 pub fn decode_map_file_to_ir(path: &str) -> Result<(IrMap, PathBuf), MapError> {
     let p = Path::new(path);
     if p.extension().and_then(|e| e.to_str()) != Some("json") {
@@ -227,6 +293,7 @@ pub fn decode_map_file_to_ir(path: &str) -> Result<(IrMap, PathBuf), MapError> {
         path: p.to_path_buf(),
         source,
     })?;
+    validate_map_tile_dimensions(j.tilewidth, j.tileheight)?;
 
     let map_dir = p
         .parent()
@@ -252,6 +319,7 @@ pub fn decode_map_file_to_ir(path: &str) -> Result<(IrMap, PathBuf), MapError> {
                 path: ts_path,
                 source,
             })?;
+        validate_external_tileset(&ts.source, ts.firstgid, &ext)?;
 
         // (We keep image path relative; Map::from_ir will join with map_dir)
         ir_tilesets.push(IrTileset::Atlas {
@@ -304,9 +372,9 @@ pub fn decode_map_file_to_ir(path: &str) -> Result<(IrMap, PathBuf), MapError> {
     let mut ir_layers = Vec::with_capacity(j.layers.len());
     for l in j.layers {
         let layer_name = l.name.clone();
-        let properties = properties_from_json(l.properties)?;
         let layer_kind = match l.kind.as_deref().unwrap_or("tilelayer") {
             "tilelayer" => {
+                validate_tile_layer_shape(&layer_name, &l)?;
                 for &raw_gid in &l.data {
                     let gid = raw_gid & crate::spatial::GID_MASK;
                     if gid != 0 && gid > max_gid {
@@ -345,6 +413,7 @@ pub fn decode_map_file_to_ir(path: &str) -> Result<(IrMap, PathBuf), MapError> {
             },
             _ => IrLayerKind::Unsupported,
         };
+        let properties = properties_from_json(l.properties)?;
         ir_layers.push(IrLayer {
             name: l.name,
             visible: l.visible,
@@ -368,250 +437,4 @@ pub fn decode_map_file_to_ir(path: &str) -> Result<(IrMap, PathBuf), MapError> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn temp_dir() -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock went backwards")
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("mq_tiled_props_{nanos}"));
-        fs::create_dir_all(&dir).expect("failed to create temp dir");
-        dir
-    }
-
-    #[test]
-    fn parses_properties_for_map_layer_object_tileset_and_tile() {
-        let dir = temp_dir();
-        let map_path = dir.join("map.json");
-        let ts_path = dir.join("tileset.json");
-
-        let map_json = r#"{
-          "tilewidth": 16,
-          "tileheight": 16,
-          "properties": [
-            {"name":"is_night","type":"bool","value":true},
-            {"name":"gravity","type":"float","value":9.8},
-            {"name":"theme","type":"string","value":"forest"}
-          ],
-          "layers": [
-            {
-              "type":"tilelayer",
-              "name":"ground",
-              "width":2,
-              "height":2,
-              "data":[1,0,0,0],
-              "properties":[
-                {"name":"is_solid","type":"bool","value":true},
-                {"name":"difficulty","type":"int","value":3}
-              ]
-            },
-            {
-              "type":"objectgroup",
-              "name":"spawns",
-              "objects":[
-                {
-                  "id": 7,
-                  "name":"spawn_1",
-                  "type":"spawn",
-                  "properties":[{"name":"kind","type":"string","value":"player"}]
-                }
-              ],
-              "properties":[{"name":"enabled","type":"bool","value":true}]
-            }
-          ],
-          "tilesets":[{"firstgid":1,"source":"tileset.json"}]
-        }"#;
-
-        let tileset_json = r#"{
-          "tilewidth":16,
-          "tileheight":16,
-          "tilecount":4,
-          "columns":2,
-          "image":"tiles.png",
-          "properties":[{"name":"biome","type":"string","value":"forest"}],
-          "tiles":[
-            {
-              "id":0,
-              "properties":[{"name":"damage","type":"int","value":10}],
-              "objectgroup":{
-                "objects":[
-                  {"id":1,"name":"hitbox","type":"shape","properties":[{"name":"sensor","type":"bool","value":false}]}
-                ]
-              }
-            }
-          ]
-        }"#;
-
-        fs::write(&map_path, map_json).expect("failed to write map");
-        fs::write(&ts_path, tileset_json).expect("failed to write tileset");
-
-        let (ir, _) = decode_map_file_to_ir(map_path.to_str().expect("path utf8")).expect("decode");
-
-        assert_eq!(ir.properties.get_bool("is_night"), Some(true));
-        assert_eq!(ir.properties.get_f32("gravity"), Some(9.8));
-        assert_eq!(ir.properties.get_string("theme"), Some("forest"));
-
-        assert_eq!(ir.layers[0].properties.get_bool("is_solid"), Some(true));
-        assert_eq!(ir.layers[0].properties.get_i32("difficulty"), Some(3));
-
-        match &ir.layers[1].kind {
-            IrLayerKind::Objects { objects } => {
-                assert_eq!(objects.len(), 1);
-                assert_eq!(objects[0].properties.get_string("kind"), Some("player"));
-            }
-            _ => panic!("expected object layer"),
-        }
-
-        match &ir.tilesets[0] {
-            IrTileset::Atlas {
-                properties, tiles, ..
-            } => {
-                assert_eq!(properties.get_string("biome"), Some("forest"));
-                assert_eq!(tiles.len(), 1);
-                assert_eq!(tiles[0].properties.get_i32("damage"), Some(10));
-                assert_eq!(tiles[0].objects.len(), 1);
-                assert_eq!(
-                    tiles[0].objects[0].properties.get_bool("sensor"),
-                    Some(false)
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn keeps_large_int_property_values() {
-        let dir = temp_dir();
-        let map_path = dir.join("map.json");
-        let ts_path = dir.join("tileset.json");
-
-        let map_json = r#"{
-          "tilewidth": 16,
-          "tileheight": 16,
-          "properties": [
-            {"name":"big_id","type":"object","value":5000000000}
-          ],
-          "layers": [],
-          "tilesets":[{"firstgid":1,"source":"tileset.json"}]
-        }"#;
-
-        let tileset_json = r#"{
-          "tilewidth":16,
-          "tileheight":16,
-          "tilecount":1,
-          "columns":1,
-          "image":"tiles.png"
-        }"#;
-
-        fs::write(&map_path, map_json).expect("failed to write map");
-        fs::write(&ts_path, tileset_json).expect("failed to write tileset");
-
-        let (ir, _) = decode_map_file_to_ir(map_path.to_str().expect("path utf8")).expect("decode");
-        assert_eq!(ir.properties.get_i64("big_id"), Some(5_000_000_000));
-        assert_eq!(ir.properties.get_i32("big_id"), None);
-    }
-
-    #[test]
-    fn returns_typed_error_for_malformed_json() {
-        let dir = temp_dir();
-        let map_path = dir.join("map.json");
-        fs::write(&map_path, "{ not json").expect("failed to write map");
-
-        let err = decode_map_file_to_ir(map_path.to_str().expect("path utf8"))
-            .err()
-            .expect("expected decode error");
-        assert!(matches!(err, MapError::Json { .. }));
-    }
-
-    #[test]
-    fn returns_typed_error_for_missing_tileset_file() {
-        let dir = temp_dir();
-        let map_path = dir.join("map.json");
-        let map_json = r#"{
-          "tilewidth": 16,
-          "tileheight": 16,
-          "layers": [],
-          "tilesets":[{"firstgid":1,"source":"missing_tileset.json"}]
-        }"#;
-        fs::write(&map_path, map_json).expect("failed to write map");
-
-        let err = decode_map_file_to_ir(map_path.to_str().expect("path utf8"))
-            .err()
-            .expect("expected decode error");
-        assert!(matches!(err, MapError::Io { .. }));
-    }
-
-    #[test]
-    fn returns_typed_error_for_invalid_gid_reference() {
-        let dir = temp_dir();
-        let map_path = dir.join("map.json");
-        let ts_path = dir.join("tileset.json");
-
-        let map_json = r#"{
-          "tilewidth": 16,
-          "tileheight": 16,
-          "layers": [
-            {
-              "type":"tilelayer",
-              "name":"ground",
-              "width":1,
-              "height":1,
-              "data":[99]
-            }
-          ],
-          "tilesets":[{"firstgid":1,"source":"tileset.json"}]
-        }"#;
-
-        let tileset_json = r#"{
-          "tilewidth":16,
-          "tileheight":16,
-          "tilecount":1,
-          "columns":1,
-          "image":"tiles.png"
-        }"#;
-
-        fs::write(&map_path, map_json).expect("failed to write map");
-        fs::write(&ts_path, tileset_json).expect("failed to write tileset");
-
-        let err = decode_map_file_to_ir(map_path.to_str().expect("path utf8"))
-            .err()
-            .expect("expected decode error");
-        assert!(matches!(err, MapError::InvalidTileGid { .. }));
-    }
-
-    #[test]
-    fn returns_typed_error_for_unknown_property_type() {
-        let dir = temp_dir();
-        let map_path = dir.join("map.json");
-        let ts_path = dir.join("tileset.json");
-
-        let map_json = r#"{
-          "tilewidth": 16,
-          "tileheight": 16,
-          "properties": [
-            {"name":"mystery","type":"not_supported","value":"x"}
-          ],
-          "layers": [],
-          "tilesets":[{"firstgid":1,"source":"tileset.json"}]
-        }"#;
-
-        let tileset_json = r#"{
-          "tilewidth":16,
-          "tileheight":16,
-          "tilecount":1,
-          "columns":1,
-          "image":"tiles.png"
-        }"#;
-
-        fs::write(&map_path, map_json).expect("failed to write map");
-        fs::write(&ts_path, tileset_json).expect("failed to write tileset");
-
-        let err = decode_map_file_to_ir(map_path.to_str().expect("path utf8"))
-            .err()
-            .expect("expected decode error");
-        assert!(matches!(err, MapError::UnsupportedPropertyType { .. }));
-    }
-}
+include!("../../tests/unit/loader_json_tests.rs");

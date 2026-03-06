@@ -29,7 +29,7 @@ async fn main() {
         clear_background(BLACK);
         let stamp = map.next_frame_stamp();
 
-        map.draw_visible_rect(Vec2::ZERO, screen_size);
+        map.draw_visible_rect_with_stamp(Vec2::ZERO, screen_size, stamp);
         map.draw_objects_tiles_with_stamp(Vec2::ZERO, screen_size, stamp);
         map.draw_objects_debug_with_stamp(Vec2::ZERO, screen_size, stamp);
 

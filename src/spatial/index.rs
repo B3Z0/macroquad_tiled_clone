@@ -122,7 +122,7 @@ impl GlobalIndex {
         }
     }
 
-    fn alloc_handle(&mut self) -> TileHandle {
+    pub fn alloc_handle(&mut self) -> TileHandle {
         let h = TileHandle(self.next_handle);
         self.next_handle += 1;
         self.handles.push(None);
@@ -140,21 +140,43 @@ impl GlobalIndex {
     pub fn add_tile(&mut self, id: TileId, layer: LayerIdx, world: Vec2) -> TileHandle {
         let cc = world_to_chunk(world);
         let handle = self.alloc_handle();
-        let bucket = self.buckets.entry(cc).or_default();
+        self.insert_tile_with_handle(handle, id, layer, cc, world);
+        handle
+    }
+
+    pub fn insert_tile_with_handle(
+        &mut self,
+        handle: TileHandle,
+        id: TileId,
+        layer: LayerIdx,
+        chunk: ChunkCoord,
+        world: Vec2,
+    ) {
+        let bucket = self.buckets.entry(chunk).or_default();
         let vec = &mut bucket.layers.entry(layer).or_default().tiles;
+        let chunk_origin = vec2((chunk.x * CHUNK_SIZE) as f32, (chunk.y * CHUNK_SIZE) as f32);
 
         let idx = vec.len();
         vec.push(TileRec {
             handle,
             id,
-            rel_pos: rel(world),
+            rel_pos: world - chunk_origin,
         });
-        self.handles[handle.0 as usize] = Some(TileLoc {
-            chunk: cc,
-            layer,
-            index: idx,
-        });
-        handle
+
+        let hidx = handle.0 as usize;
+        if hidx >= self.handles.len() {
+            self.handles.resize_with(hidx + 1, || None);
+        }
+
+        // Keep first location as canonical metadata; a handle may exist in
+        // multiple chunks for oversized tiles and still share one identity.
+        if self.handles[hidx].is_none() {
+            self.handles[hidx] = Some(TileLoc {
+                chunk,
+                layer,
+                index: idx,
+            });
+        }
     }
 
     pub fn insert_object(&mut self, layer: LayerIdx, chunk: ChunkCoord, object_rec: ObjectRec) {
