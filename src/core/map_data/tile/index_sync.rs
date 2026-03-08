@@ -1,3 +1,5 @@
+//! Tile chunk-span helpers used during index population.
+
 use crate::spatial::world_to_chunk;
 use macroquad::prelude::{vec2, Vec2};
 

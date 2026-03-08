@@ -1,4 +1,4 @@
-# Architecture Refactor Plan (Ticket 1)
+# Architecture Refactor Plan
 
 ## Goal
 Define hard ownership boundaries so map runtime/query logic and macroquad rendering logic are separated internally, while preserving the current public `Map` API during transition.
@@ -55,32 +55,71 @@ Public compatibility layer preserving current external API.
 7. `Map` facade contains no business logic long-term; only orchestration/delegation.
 8. Canonical->index synchronization uses eager incremental updates on every mutation.
 
-## Mapping: Current `Map` Fields -> Target Owner
+## Current Ownership Snapshot
 
 Current `Map` fields from [src/map.rs](../src/map.rs):
-- `index: GlobalIndex` -> `MapData`
-- `tilesets: Vec<TilesetInfo>` -> split into:
-  - runtime tileset metadata -> `MapData`
-  - macroquad textures/atlas draw assets -> `MacroquadRenderAssets`
-- `object_layers: Vec<ObjectLayer>` -> `MapData` (object content)
-- `renderer: MapRenderer` -> `RenderState`
-- `gid_lut: Vec<u16>` -> `MapData`
-- `tile_layers: Vec<TileLayerDrawInfo>` -> `MapData`
-- `tile_seen_stamps: Vec<u32>` -> `RenderState`
-- `draw_order: Vec<LayerId>` -> `MapData`
-- `layer_kind_by_id: HashMap<LayerId, LayerKindInfo>` -> `MapData`
+- `data: MapData`
+- `assets: MacroquadRenderAssets`
+- `render_state: RenderState`
 
-## Existing Module References (current state)
-- Loader/parsing: [src/loader/json_loader.rs](../src/loader/json_loader.rs)
-- Runtime/IR model: [src/ir_map.rs](../src/ir_map.rs)
-- Spatial index: [src/spatial/index.rs](../src/spatial/index.rs)
-- Culling helpers: [src/render/cull.rs](../src/render/cull.rs)
-- Unified map/runtime/render implementation (to be split): [src/map.rs](../src/map.rs)
+Current `MapData` ownership from [src/core/map_data/mod.rs](../src/core/map_data/mod.rs):
+- `source_ir: IrMap` (canonical authored source)
+- `derived_index: GlobalIndex` (derived query/index cache, not canonical truth)
+- `object_state: ObjectState` (canonical object runtime state + handle maps)
+- `tile_state: TileState` (canonical tile runtime metadata + derived tile draw metadata)
+- `layer_plan: LayerPlan` (deterministic layer traversal plan)
 
-## Non-Goals for Ticket 1
-- No runtime behavior changes
-- No API changes
-- No file moves yet
+`ObjectState`:
+- `object_layers`
+- `object_location_by_handle`
+- `object_handles_by_layer`
+- `object_runtime_by_layer`
+
+`TileState`:
+- `tileset_runtime_info`
+- `gid_lut`
+- `tile_layer_draw_info`
+
+`LayerPlan`:
+- `draw_order`
+- `layer_kind_by_id`
+
+`RenderState`:
+- frame stamp lifecycle
+- cull padding
+- debug flag
+- per-pass dedupe stamp buffers
+
+`MacroquadRenderAssets`:
+- macroquad texture-backed tileset assets only
+
+## Module Ownership Tree (Current State)
+
+- `src/core/map_data/mod.rs`
+  - type declarations, module wiring, thin orchestration entry points
+- `src/core/map_data/load.rs`
+  - canonical map build from IR
+- `src/core/map_data/persistence.rs`
+  - canonical save/export
+- `src/core/map_data/object/{load,mutate,query,index_sync}.rs`
+  - object state build, handle-centric mutation/query, index sync helpers
+- `src/core/map_data/tile/{load,query,index_sync,draw}.rs`
+  - tile state build/query/index helpers and draw-origin math
+- `src/core/map_data/shared/{geometry,layer_plan,tags}.rs`
+  - shared geometry/layer-planning/tag helpers
+- `src/render/assets.rs`
+  - texture/atlas ownership
+- `src/render/state.rs`
+  - frame-local render state and dedupe buffers
+- `src/render/macroquad_renderer.rs`
+  - draw execution pipeline
+- `src/map.rs`
+  - stable facade API over core + render components
+
+## Non-Goals (Refactor Track)
+- No runtime behavior changes in readability-only tickets
+- No breaking public API changes
+- No coupling of render internals back into canonical state
 
 ## Acceptance Checklist
 - Architecture boundary is explicit and documented.

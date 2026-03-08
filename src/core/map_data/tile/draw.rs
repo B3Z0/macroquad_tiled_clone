@@ -1,3 +1,5 @@
+//! Tile draw-origin helpers shared by load/render code paths.
+
 use macroquad::prelude::{vec2, Vec2};
 
 pub(crate) fn tile_draw_origin(world: Vec2, map_tile_h: u32, tile_h: u32) -> Vec2 {

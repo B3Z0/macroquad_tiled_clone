@@ -1,3 +1,5 @@
+//! Object query/get helpers over canonical state + derived index.
+
 use super::super::shared::tags::object_has_tag;
 use super::super::{MapData, ObjectLayer, ObjectQueryFilter, ObjectRuntimeState};
 use crate::ir_map::IrObject;

@@ -1,3 +1,5 @@
+//! Object state build from authored object layers.
+
 use super::super::shared::geometry::object_chunk_span_runtime;
 use super::super::{LayerId, LayerKindInfo, ObjectLayer, ObjectRuntimeState, ObjectState};
 use crate::ir_map::{IrLayer, IrLayerKind};

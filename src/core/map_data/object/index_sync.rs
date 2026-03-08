@@ -1,3 +1,5 @@
+//! Object canonical-to-index placement/synchronization helpers.
+
 use super::super::shared::geometry::object_chunk_span_runtime;
 use super::super::{MapData, ObjectRuntimeState};
 use crate::spatial::{LayerIdx, ObjectHandle, CHUNK_SIZE};

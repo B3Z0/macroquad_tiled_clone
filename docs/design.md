@@ -31,7 +31,7 @@ Current ownership split:
 
 - `src/core/*`
   - `MapData` is the canonical mutable runtime truth model.
-  - `GlobalIndex` inside `MapData` is derived query/index cache, rebuildable from canonical object/tile state.
+  - `derived_index: GlobalIndex` inside `MapData` is derived query/index cache, rebuildable from canonical object/tile state.
   - Layer ordering metadata and spatial index construction.
   - Chunk visibility coordinate helpers for view rectangles.
   - Must not import from `crate::render`.
@@ -50,9 +50,35 @@ This split exists to keep runtime/query use-cases (headless engine systems) sepa
 Canonical state boundary rule:
 
 - Exactly one canonical runtime truth model exists: `MapData`.
-- Query/index structures (for example `GlobalIndex`) are derived/runtime-sync data, not authoritative gameplay truth.
+- Query/index structures (for example `derived_index: GlobalIndex`) are derived/runtime-sync data, not authoritative gameplay truth.
 - Rendering never owns gameplay truth; it consumes `MapData` plus render-only state.
 - Sync mode is eager incremental: every canonical object mutation updates index state in the same operation.
+
+## Core Module Ownership Tree
+
+`src/core/map_data/` is split by concern:
+
+- `mod.rs`
+  - type declarations (`MapData`, `ObjectState`, `TileState`, `LayerPlan`, runtime query types)
+  - module wiring and shared re-exports
+- `load.rs`
+  - canonical state build from `IrMap`
+- `persistence.rs`
+  - export from canonical state only
+- `object/`
+  - `load.rs`: object state build from layers
+  - `mutate.rs`: handle-centric object mutations
+  - `query.rs`: object query/get helpers
+  - `index_sync.rs`: object placement/index consistency helpers
+- `tile/`
+  - `load.rs`: tileset LUT + tile index population
+  - `query.rs`: visible chunk coordinate derivation
+  - `index_sync.rs`: tile chunk span helpers
+  - `draw.rs`: tile draw-origin math
+- `shared/`
+  - `geometry.rs`: object AABB/chunk span helpers
+  - `layer_plan.rs`: deterministic layer order + kind mapping
+  - `tags.rs`: object tag matching helpers
 
 ## Engine Integration
 

@@ -1,3 +1,5 @@
+//! Handle-centric object mutation helpers.
+
 use super::super::{MapData, ObjectRuntimeState};
 use crate::ir_map::IrObject;
 use crate::spatial::{LayerIdx, ObjectHandle};

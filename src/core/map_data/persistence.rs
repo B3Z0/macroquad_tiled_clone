@@ -1,3 +1,5 @@
+//! Canonical-state persistence helpers (save/export).
+
 use super::{LayerId, LayerKindInfo, MapData, ObjectLayer, ObjectRuntimeState};
 use crate::ir_map::{
     IrLayer, IrLayerKind, IrObject, IrObjectShape, IrTileset, Properties, PropertyValue,

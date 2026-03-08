@@ -1,3 +1,5 @@
+//! Tile-visible chunk query helpers.
+
 use super::super::MapData;
 use crate::spatial::CHUNK_SIZE;
 use macroquad::prelude::{vec2, Vec2};

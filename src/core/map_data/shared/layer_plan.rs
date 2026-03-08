@@ -1,3 +1,5 @@
+//! Shared layer planning helpers for deterministic traversal.
+
 use crate::core::map_data::LayerId;
 use crate::ir_map::{IrLayer, IrLayerKind};
 use std::collections::HashMap;

@@ -31,8 +31,8 @@ This document defines naming and readability conventions for internal refactors 
 
 Examples:
 
-- Canonical: `object_runtime_by_layer`, `object_layers`
-- Derived: `object_loc_by_handle`, `gid_lut`, `index`
+- Canonical: `object_runtime_by_layer`, `object_layers`, `tile_state`
+- Derived: `derived_index`, `gid_lut`, `tile_layer_draw_info`, `object_location_by_handle`
 
 ## Invalid/Removed Handle Naming
 
@@ -54,16 +54,16 @@ Constraints:
 - No changes to public API signatures unless explicitly additive.
 - Keep determinism for draw order, cull behavior, and stamp dedupe.
 
-## `MapData` Readability Split Plan
+## `MapData` Compartment Map
 
 Target internal modules:
 
-- `src/core/map_data/mod.rs`: type exports and shared internal helpers
+- `src/core/map_data/mod.rs`: type declarations, module wiring, thin entry points only
 - `src/core/map_data/load.rs`: loading/build from IR
 - `src/core/map_data/persistence.rs`: save/export from canonical state
-- `src/core/map_data/object_runtime.rs`: object runtime mutations by handle
-- `src/core/map_data/query.rs`: visible/context query entrypoints
-- `src/core/map_data/index_sync.rs`: canonical-to-index synchronization helpers
+- `src/core/map_data/object/{load,mutate,query,index_sync}.rs`: object lifecycle/query/index sync
+- `src/core/map_data/tile/{load,query,index_sync,draw}.rs`: tile load/query/index sync/draw math
+- `src/core/map_data/shared/{geometry,layer_plan,tags}.rs`: cross-cutting helpers for object/tile paths
 
 Migration rule:
 

@@ -1,3 +1,5 @@
+//! Shared object tag matching helpers.
+
 use crate::ir_map::IrObject;
 
 pub(crate) fn object_has_tag(obj: &IrObject, tag: &str) -> bool {

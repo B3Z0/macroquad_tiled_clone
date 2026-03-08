@@ -1,3 +1,5 @@
+//! Tile state build from authored tile layers and tilesets.
+
 use super::super::{LayerId, LayerKindInfo, TileLayerDrawInfo, TileState, TilesetRuntimeInfo};
 use super::{draw::tile_draw_origin, index_sync::tile_chunk_span};
 use crate::ir_map::{IrLayer, IrLayerKind, IrMap, IrTileset};

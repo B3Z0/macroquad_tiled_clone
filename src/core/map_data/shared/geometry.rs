@@ -1,3 +1,5 @@
+//! Shared geometry helpers for world AABB and chunk-span derivation.
+
 use crate::core::map_data::ObjectRuntimeState;
 use crate::ir_map::{IrObject, IrObjectShape};
 use crate::spatial::world_to_chunk;
