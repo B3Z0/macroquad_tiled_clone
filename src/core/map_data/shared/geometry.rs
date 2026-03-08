@@ -1,4 +1,4 @@
-use super::*;
+use super::super::*;
 
 #[cfg(test)]
 fn object_aabb_world(obj: &IrObject, layer_offset: Vec2) -> (Vec2, Vec2) {
@@ -112,22 +112,4 @@ pub(crate) fn object_chunk_span_runtime(
 ) -> (crate::spatial::ChunkCoord, crate::spatial::ChunkCoord) {
     let (min, max) = object_aabb_world_runtime(obj, runtime, layer_offset);
     (world_to_chunk(min), world_to_chunk(max))
-}
-
-pub(crate) fn tile_chunk_span(
-    world: Vec2,
-    draw_w: f32,
-    draw_h: f32,
-) -> (crate::spatial::ChunkCoord, crate::spatial::ChunkCoord) {
-    let max = vec2(
-        world.x + draw_w.max(1.0) - f32::EPSILON,
-        world.y + draw_h.max(1.0) - f32::EPSILON,
-    );
-    (world_to_chunk(world), world_to_chunk(max))
-}
-
-pub(crate) fn tile_draw_origin(world: Vec2, map_tile_h: u32, tile_h: u32) -> Vec2 {
-    // For orthogonal tile layers, tiles are bottom-aligned to the map cell.
-    // This keeps oversized tiles extending upward instead of downward.
-    vec2(world.x, world.y + (map_tile_h as f32 - tile_h as f32))
 }

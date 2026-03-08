@@ -1,4 +1,5 @@
-use super::*;
+use super::super::shared::tags::object_has_tag;
+use super::super::*;
 
 impl MapData {
     /// Returns parsed object layers for inspection/querying.
@@ -147,46 +148,4 @@ impl MapData {
         handles.sort_by_key(|h| h.0);
         handles
     }
-
-    pub(crate) fn visible_coords_for_draw(
-        &self,
-        view_min: Vec2,
-        view_max: Vec2,
-        cull_padding: f32,
-    ) -> Vec<crate::spatial::ChunkCoord> {
-        let min = vec2(view_min.x - cull_padding, view_min.y - cull_padding);
-        let max = vec2(view_max.x + cull_padding, view_max.y + cull_padding);
-
-        let mut cx_min = (min.x as i32).div_euclid(CHUNK_SIZE);
-        let mut cy_min = (min.y as i32).div_euclid(CHUNK_SIZE);
-        let mut cx_max = (max.x as i32).div_euclid(CHUNK_SIZE);
-        let mut cy_max = (max.y as i32).div_euclid(CHUNK_SIZE);
-
-        if cx_min > cx_max {
-            std::mem::swap(&mut cx_min, &mut cx_max);
-        }
-        if cy_min > cy_max {
-            std::mem::swap(&mut cy_min, &mut cy_max);
-        }
-
-        let mut coords = Vec::new();
-        for cy in cy_min..=cy_max {
-            for cx in cx_min..=cx_max {
-                coords.push(crate::spatial::ChunkCoord { x: cx, y: cy });
-            }
-        }
-        coords
-    }
-}
-
-fn object_has_tag(obj: &IrObject, tag: &str) -> bool {
-    if let Some(v) = obj.properties.get_string("tag") {
-        if v == tag {
-            return true;
-        }
-    }
-    if let Some(v) = obj.properties.get_string("tags") {
-        return v.split(',').any(|t| t.trim() == tag);
-    }
-    false
 }

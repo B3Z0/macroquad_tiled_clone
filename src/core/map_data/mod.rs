@@ -11,15 +11,18 @@ use serde_json::{json, Value as JsonValue};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-mod geometry;
 mod load;
-mod object_runtime;
+mod object;
 mod persistence;
-mod query;
+mod shared;
+mod tile;
 
 #[cfg(test)]
-pub(crate) use geometry::object_chunk_span;
-pub(crate) use geometry::{object_chunk_span_runtime, tile_chunk_span, tile_draw_origin};
+pub(crate) use shared::geometry::object_chunk_span;
+#[cfg(test)]
+pub(crate) use shared::geometry::object_chunk_span_runtime;
+#[cfg(test)]
+pub(crate) use tile::draw::tile_draw_origin;
 
 /// Stable layer identifier used by the renderer draw order.
 ///
@@ -93,41 +96,7 @@ pub(crate) struct TileLayerDrawInfo {
     pub(crate) opacity: f32,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) enum LayerKindInfo {
-    Tiles(usize),
-    Objects(usize),
-    Unsupported,
-}
-
-pub(crate) fn build_draw_order_and_kind(
-    layers: &[IrLayer],
-) -> (Vec<LayerId>, HashMap<LayerId, LayerKindInfo>) {
-    let mut draw_order = Vec::with_capacity(layers.len());
-    let mut layer_kind_by_id = HashMap::with_capacity(layers.len());
-    let mut tile_layer_idx = 0usize;
-    let mut object_layer_idx = 0usize;
-
-    for (layer_z, layer) in layers.iter().enumerate() {
-        let stable_id = layer_z as LayerId;
-        draw_order.push(stable_id);
-        match layer.kind {
-            IrLayerKind::Tiles { .. } => {
-                layer_kind_by_id.insert(stable_id, LayerKindInfo::Tiles(tile_layer_idx));
-                tile_layer_idx += 1;
-            }
-            IrLayerKind::Objects { .. } => {
-                layer_kind_by_id.insert(stable_id, LayerKindInfo::Objects(object_layer_idx));
-                object_layer_idx += 1;
-            }
-            IrLayerKind::Unsupported => {
-                layer_kind_by_id.insert(stable_id, LayerKindInfo::Unsupported);
-            }
-        }
-    }
-
-    (draw_order, layer_kind_by_id)
-}
+pub(crate) use shared::layer_plan::{build_draw_order_and_kind, LayerKindInfo};
 
 /// Runtime/query data for a loaded map, independent from render-frame state.
 ///
