@@ -1,3 +1,8 @@
+//! Canonical mutable map runtime model.
+//!
+//! This module currently contains loading, runtime mutation, query, and persistence helpers.
+//! It is the next readability split target into concern-focused submodules without behavior changes.
+
 use crate::ir_map::*;
 use crate::loader::json_loader::*;
 use crate::spatial::{world_to_chunk, GlobalIndex, LayerIdx, ObjectHandle, TileId, CHUNK_SIZE};

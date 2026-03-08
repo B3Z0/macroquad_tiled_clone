@@ -86,3 +86,4 @@ Current `Map` fields from [src/map.rs](../src/map.rs):
 - Architecture boundary is explicit and documented.
 - Every current `Map` field maps to one target owner.
 - Ownership rules are unambiguous for stamps, textures, and queries.
+- Naming and readability conventions are defined in `docs/code_style.md` before module-split refactors.

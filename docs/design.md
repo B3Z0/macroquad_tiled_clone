@@ -135,3 +135,4 @@ The loading path is panic-free and returns typed `MapError` values:
   - oversized tile anchoring/culling
   - draw order determinism
   - cull padding consistency across draw APIs
+- Follow naming and readability conventions in `docs/code_style.md`.
