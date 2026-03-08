@@ -360,6 +360,63 @@ impl Map {
             .query_visible_tile_handles_all(view_min, view_max, filter)
     }
 
+    /// Sets runtime visibility for multiple tiles by handle.
+    ///
+    /// Returns number of handles successfully updated.
+    pub fn set_tiles_visible_by_handle(&mut self, handles: &[TileHandle], visible: bool) -> usize {
+        self.data.set_tiles_visible_by_handle(handles, visible)
+    }
+
+    /// Sets runtime alive/enabled for multiple tiles by handle.
+    ///
+    /// Returns number of handles successfully updated.
+    pub fn set_tiles_alive_by_handle(&mut self, handles: &[TileHandle], alive: bool) -> usize {
+        self.data.set_tiles_alive_by_handle(handles, alive)
+    }
+
+    /// Replaces gid for multiple tiles by handle.
+    ///
+    /// `new_gid` is interpreted as raw gid value (clean gid without flip flags recommended).
+    /// Returns number of handles successfully updated.
+    pub fn update_tiles_gid_by_handle(&mut self, handles: &[TileHandle], new_gid: u32) -> usize {
+        self.data
+            .update_tiles_gid_by_handle(handles, crate::spatial::TileId(new_gid))
+    }
+
+    /// Replaces visible tiles in one tile layer and view rectangle with `new_gid`.
+    ///
+    /// Returns changed handles in deterministic order.
+    pub fn replace_visible_tiles_gid_in_rect(
+        &mut self,
+        layer_idx: usize,
+        view_min: Vec2,
+        view_max: Vec2,
+        filter: TileQueryFilter,
+        new_gid: u32,
+    ) -> Vec<TileHandle> {
+        self.data.replace_visible_tiles_gid_in_rect(
+            layer_idx,
+            view_min,
+            view_max,
+            filter,
+            crate::spatial::TileId(new_gid),
+        )
+    }
+
+    /// Disables (`alive = false`) visible tiles in one tile layer and view rectangle.
+    ///
+    /// Returns changed handles in deterministic order.
+    pub fn disable_visible_tiles_in_rect(
+        &mut self,
+        layer_idx: usize,
+        view_min: Vec2,
+        view_max: Vec2,
+        filter: TileQueryFilter,
+    ) -> Vec<TileHandle> {
+        self.data
+            .disable_visible_tiles_in_rect(layer_idx, view_min, view_max, filter)
+    }
+
     /// Enables/disables object debug overlay drawing used by [`Map::draw`].
     ///
     /// Stable API.

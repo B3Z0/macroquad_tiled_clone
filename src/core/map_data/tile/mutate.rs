@@ -1,9 +1,9 @@
 //! Handle-centric tile mutation helpers.
 
-use super::super::{MapData, TileRuntimeState, TilesetRuntimeInfo};
+use super::super::{MapData, TileQueryFilter, TileRuntimeState, TilesetRuntimeInfo};
 use super::index_sync::tile_chunk_span;
 use crate::spatial::{world_to_chunk, ChunkCoord, LayerIdx, TileHandle, TileId, CHUNK_SIZE};
-use macroquad::prelude::vec2;
+use macroquad::prelude::{vec2, Vec2};
 use std::collections::HashSet;
 
 impl MapData {
@@ -104,6 +104,88 @@ impl MapData {
         }
         self.debug_assert_tile_sync_consistency(handle);
         true
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn set_tiles_visible_by_handle(
+        &mut self,
+        handles: &[TileHandle],
+        visible: bool,
+    ) -> usize {
+        let mut changed = 0usize;
+        for &handle in handles {
+            if self.set_tile_visible_by_handle(handle, visible) {
+                changed += 1;
+            }
+        }
+        changed
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn set_tiles_alive_by_handle(
+        &mut self,
+        handles: &[TileHandle],
+        alive: bool,
+    ) -> usize {
+        let mut changed = 0usize;
+        for &handle in handles {
+            if self.set_tile_alive_by_handle(handle, alive) {
+                changed += 1;
+            }
+        }
+        changed
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn update_tiles_gid_by_handle(
+        &mut self,
+        handles: &[TileHandle],
+        id: TileId,
+    ) -> usize {
+        let mut changed = 0usize;
+        for &handle in handles {
+            if self.update_tile_gid_by_handle(handle, id) {
+                changed += 1;
+            }
+        }
+        changed
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn replace_visible_tiles_gid_in_rect(
+        &mut self,
+        layer_idx: usize,
+        view_min: Vec2,
+        view_max: Vec2,
+        filter: TileQueryFilter,
+        new_gid: TileId,
+    ) -> Vec<TileHandle> {
+        let handles = self.query_visible_tile_handles(layer_idx, view_min, view_max, filter);
+        let mut changed = Vec::new();
+        for handle in handles {
+            if self.update_tile_gid_by_handle(handle, new_gid) {
+                changed.push(handle);
+            }
+        }
+        changed
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn disable_visible_tiles_in_rect(
+        &mut self,
+        layer_idx: usize,
+        view_min: Vec2,
+        view_max: Vec2,
+        filter: TileQueryFilter,
+    ) -> Vec<TileHandle> {
+        let handles = self.query_visible_tile_handles(layer_idx, view_min, view_max, filter);
+        let mut changed = Vec::new();
+        for handle in handles {
+            if self.set_tile_alive_by_handle(handle, false) {
+                changed.push(handle);
+            }
+        }
+        changed
     }
 
     fn apply_tile_runtime_update(

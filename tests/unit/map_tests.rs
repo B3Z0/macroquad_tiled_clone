@@ -922,6 +922,112 @@ mod tests {
     }
 
     #[test]
+    fn tile_region_mutation_helpers_update_query_and_render_immediately() {
+        let ir = IrMap {
+            tile_w: 16,
+            tile_h: 16,
+            properties: Properties::default(),
+            tilesets: vec![IrTileset::Atlas {
+                first_gid: 1,
+                source: "mock.tsx".to_string(),
+                image: "mock.png".to_string(),
+                tile_w: 16,
+                tile_h: 16,
+                tilecount: 2,
+                columns: 2,
+                spacing: 0,
+                margin: 0,
+                properties: Properties::default(),
+                tiles: vec![],
+            }],
+            layers: vec![IrLayer {
+                name: "tiles".to_string(),
+                visible: true,
+                opacity: 1.0,
+                offset: Vec2::ZERO,
+                properties: Properties::default(),
+                kind: IrLayerKind::Tiles {
+                    width: 2,
+                    height: 1,
+                    data: vec![1, 2],
+                },
+            }],
+        };
+        let mut map = Map {
+            data: MapData::from_ir(ir).expect("map data from IR should build"),
+            assets: MacroquadRenderAssets { tilesets: vec![] },
+            render_state: RenderState::default(),
+        };
+
+        let changed = map.replace_visible_tiles_gid_in_rect(
+            0,
+            vec2(0.0, 0.0),
+            vec2(64.0, 32.0),
+            TileQueryFilter { gid: Some(2) },
+            1,
+        );
+        assert_eq!(changed.len(), 1);
+        assert!(
+            map.query_visible_tile_handles(
+                0,
+                vec2(0.0, 0.0),
+                vec2(64.0, 32.0),
+                TileQueryFilter { gid: Some(2) }
+            )
+            .is_empty()
+        );
+
+        let disabled = map.disable_visible_tiles_in_rect(
+            0,
+            vec2(0.0, 0.0),
+            vec2(64.0, 32.0),
+            TileQueryFilter::default(),
+        );
+        assert_eq!(disabled.len(), 2);
+        assert!(
+            map.query_visible_tile_handles(
+                0,
+                vec2(0.0, 0.0),
+                vec2(64.0, 32.0),
+                TileQueryFilter::default()
+            )
+            .is_empty()
+        );
+
+        let stamp = map.next_frame_stamp();
+        let coords = visible_chunk_coords_rect(vec2(0.0, 0.0), vec2(64.0, 32.0));
+        let renderable =
+            collect_renderable_tile_handles_with_stamp_for_test(&mut map, &coords, 0, stamp);
+        assert!(renderable.is_empty());
+    }
+
+    #[test]
+    fn tile_batch_helpers_are_deterministic_and_stale_safe() {
+        let mut map = make_oversized_tile_runtime_test_map();
+        let mut handles = map.query_visible_tile_handles(
+            0,
+            vec2(0.0, 0.0),
+            vec2((CHUNK_SIZE + 80) as f32, 160.0),
+            TileQueryFilter::default(),
+        );
+        assert!(!handles.is_empty());
+        let real = handles[0];
+
+        handles.push(real); // duplicate
+        handles.push(TileHandle(999_999)); // invalid/stale
+
+        let c1 = map.set_tiles_visible_by_handle(&handles, false);
+        let c2 = map.set_tiles_visible_by_handle(&handles, false);
+        assert_eq!(c1, c2);
+        assert!(c1 >= 1);
+
+        let removed = map.data.remove_tile_by_handle(real);
+        assert!(removed);
+        let alive_changed = map.set_tiles_alive_by_handle(&handles, true);
+        assert!(alive_changed <= c1);
+    }
+
+    #[test]
     fn fixture_layer_ordering_matches_tiled_order() {
         let ir = load_fixture_ir("external_props_map.json");
         let (draw_order, kinds) = build_draw_order_and_kind(&ir.layers);
