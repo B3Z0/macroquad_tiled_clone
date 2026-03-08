@@ -1113,6 +1113,269 @@ mod tests {
         assert!(data.derived_index.tile_rec(handle).is_none());
     }
 
+    fn tile_memberships_for_handle(
+        data: &MapData,
+        handle: TileHandle,
+    ) -> Vec<(crate::spatial::ChunkCoord, LayerIdx, TileId, Vec2)> {
+        let mut out = Vec::new();
+        for (cc, chunk) in &data.derived_index.buckets {
+            for (layer, bucket) in &chunk.layers {
+                for rec in &bucket.tiles {
+                    if rec.handle == handle {
+                        out.push((*cc, *layer, rec.id, rec.rel_pos));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    fn assert_tile_index_consistency(data: &MapData) {
+        for (layer_idx, layer_handles) in data.tile_state.runtime.tile_handles_by_layer.iter().enumerate() {
+            let bucket_layer = data.tile_state.authored.tile_layers[layer_idx].bucket_layer;
+            let runtime_layer = &data.tile_state.runtime.tile_runtime_by_layer[layer_idx];
+            assert_eq!(layer_handles.len(), runtime_layer.len());
+
+            for (slot_idx, slot_handle) in layer_handles.iter().enumerate() {
+                match slot_handle {
+                    None => {
+                        assert!(
+                            runtime_layer[slot_idx].is_none(),
+                            "runtime slot must be cleared when handle slot is empty"
+                        );
+                    }
+                    Some(handle) => {
+                        let Some(loc) = data
+                            .tile_state
+                            .runtime
+                            .tile_location_by_handle
+                            .get(handle.0 as usize)
+                            .and_then(|v| *v)
+                        else {
+                            panic!("tile location missing for active handle");
+                        };
+                        assert_eq!(loc, (layer_idx, slot_idx));
+
+                        let runtime = runtime_layer[slot_idx]
+                            .as_ref()
+                            .expect("runtime must exist for active handle");
+                        let memberships = tile_memberships_for_handle(data, *handle);
+                        if runtime.alive {
+                            assert!(
+                                !memberships.is_empty(),
+                                "alive tile must be indexed in at least one chunk"
+                            );
+                            for (cc, layer, id, rel_pos) in memberships {
+                                assert_eq!(layer, bucket_layer);
+                                assert_eq!(id, runtime.id);
+                                let origin =
+                                    vec2((cc.x * CHUNK_SIZE) as f32, (cc.y * CHUNK_SIZE) as f32);
+                                let world = origin + rel_pos;
+                                assert!((world.x - runtime.x).abs() < 0.01);
+                                assert!((world.y - runtime.y).abs() < 0.01);
+                            }
+                        } else {
+                            assert!(
+                                memberships.is_empty(),
+                                "dead tile must have no index memberships"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        for chunk in data.derived_index.buckets.values() {
+            for bucket in chunk.layers.values() {
+                for rec in &bucket.tiles {
+                    let Some((li, si)) = data
+                        .tile_state
+                        .runtime
+                        .tile_location_by_handle
+                        .get(rec.handle.0 as usize)
+                        .and_then(|v| *v)
+                    else {
+                        panic!("indexed tile handle must exist in tile location map");
+                    };
+                    assert_eq!(
+                        data.tile_state.runtime.tile_handles_by_layer[li][si],
+                        Some(rec.handle)
+                    );
+                    let runtime = data.tile_state.runtime.tile_runtime_by_layer[li][si]
+                        .as_ref()
+                        .expect("indexed tile must have runtime state");
+                    assert!(runtime.alive, "indexed tile must be alive");
+                }
+            }
+        }
+    }
+
+    fn tile_state_checksum(data: &MapData) -> u64 {
+        let mut h = 1469598103934665603u64;
+        for (layer_idx, layer_handles) in data.tile_state.runtime.tile_handles_by_layer.iter().enumerate() {
+            for (slot_idx, slot) in layer_handles.iter().enumerate() {
+                let Some(handle) = slot else {
+                    continue;
+                };
+                let Some(runtime) = data.tile_state.runtime.tile_runtime_by_layer[layer_idx][slot_idx].as_ref()
+                else {
+                    continue;
+                };
+                h = h.wrapping_mul(1099511628211).wrapping_add(handle.0 as u64);
+                h = h.wrapping_mul(1099511628211).wrapping_add(runtime.id.raw() as u64);
+                h = h.wrapping_mul(1099511628211).wrapping_add(runtime.x.to_bits() as u64);
+                h = h.wrapping_mul(1099511628211).wrapping_add(runtime.y.to_bits() as u64);
+                h = h
+                    .wrapping_mul(1099511628211)
+                    .wrapping_add(runtime.alive as u64);
+                h = h
+                    .wrapping_mul(1099511628211)
+                    .wrapping_add(runtime.visible as u64);
+
+                let mut memberships = tile_memberships_for_handle(data, *handle);
+                memberships.sort_by_key(|(cc, l, id, _)| (cc.x, cc.y, *l, id.raw()));
+                h = h
+                    .wrapping_mul(1099511628211)
+                    .wrapping_add(memberships.len() as u64);
+                for (cc, l, id, _) in memberships {
+                    h = h.wrapping_mul(1099511628211).wrapping_add(cc.x as u64);
+                    h = h.wrapping_mul(1099511628211).wrapping_add(cc.y as u64);
+                    h = h.wrapping_mul(1099511628211).wrapping_add(l as u64);
+                    h = h.wrapping_mul(1099511628211).wrapping_add(id.raw() as u64);
+                }
+            }
+        }
+        h
+    }
+
+    fn run_random_tile_mutation_sequence(seed: u64) -> Vec<u64> {
+        fn next_u32(state: &mut u64) -> u32 {
+            *state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            (*state >> 32) as u32
+        }
+
+        let path = fixture_path("external_props_map.json");
+        let path_str = path.to_str().expect("fixture path must be utf-8");
+        let mut data = MapData::load(path_str).expect("map data should load headlessly");
+        let valid_gids: Vec<TileId> = data
+            .tile_state
+            .derived
+            .gid_lut
+            .iter()
+            .enumerate()
+            .filter_map(|(gid, ts)| if *ts != u16::MAX { Some(TileId(gid as u32)) } else { None })
+            .collect();
+        assert!(!valid_gids.is_empty());
+
+        let mut rng = seed;
+        let mut trace = Vec::new();
+        for _ in 0..220 {
+            let active_handles: Vec<TileHandle> = data
+                .tile_state
+                .runtime
+                .tile_handles_by_layer
+                .iter()
+                .flat_map(|layer| layer.iter().flatten().copied())
+                .collect();
+            if active_handles.is_empty() {
+                break;
+            }
+            let handle = active_handles[(next_u32(&mut rng) as usize) % active_handles.len()];
+            match next_u32(&mut rng) % 5 {
+                0 => {
+                    let gid = valid_gids[(next_u32(&mut rng) as usize) % valid_gids.len()];
+                    let _ = data.update_tile_gid_by_handle(handle, gid);
+                }
+                1 => {
+                    let x = (next_u32(&mut rng) % 2048) as f32 - 1024.0;
+                    let y = (next_u32(&mut rng) % 2048) as f32 - 1024.0;
+                    let _ = data.move_tile_by_handle(handle, x, y);
+                }
+                2 => {
+                    let visible = data
+                        .tile_runtime_by_handle(handle)
+                        .map(|r| r.visible)
+                        .unwrap_or(false);
+                    let _ = data.set_tile_visible_by_handle(handle, !visible);
+                }
+                3 => {
+                    let alive = data
+                        .tile_runtime_by_handle(handle)
+                        .map(|r| r.alive)
+                        .unwrap_or(false);
+                    let _ = data.set_tile_alive_by_handle(handle, !alive);
+                }
+                _ => {
+                    let _ = data.remove_tile_by_handle(handle);
+                }
+            }
+
+            assert_tile_index_consistency(&data);
+            trace.push(tile_state_checksum(&data));
+        }
+
+        trace
+    }
+
+    #[test]
+    fn tile_randomized_mutation_sequence_keeps_index_consistent() {
+        let _ = run_random_tile_mutation_sequence(0xA11CE5EED_u64);
+    }
+
+    #[test]
+    fn tile_randomized_mutation_sequence_is_deterministic() {
+        let a = run_random_tile_mutation_sequence(0xFACEFEED_u64);
+        let b = run_random_tile_mutation_sequence(0xFACEFEED_u64);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn oversized_tile_move_updates_multi_chunk_membership_correctly() {
+        let ir = IrMap {
+            tile_w: 16,
+            tile_h: 16,
+            properties: Properties::default(),
+            tilesets: vec![IrTileset::Atlas {
+                first_gid: 1,
+                source: "mock.tsx".to_string(),
+                image: "mock.png".to_string(),
+                tile_w: 64,
+                tile_h: 64,
+                tilecount: 1,
+                columns: 1,
+                spacing: 0,
+                margin: 0,
+                properties: Properties::default(),
+                tiles: vec![],
+            }],
+            layers: vec![IrLayer {
+                name: "tiles".to_string(),
+                visible: true,
+                opacity: 1.0,
+                offset: Vec2::ZERO,
+                properties: Properties::default(),
+                kind: IrLayerKind::Tiles {
+                    width: 1,
+                    height: 1,
+                    data: vec![1],
+                },
+            }],
+        };
+        let mut data = MapData::from_ir(ir).expect("map data from IR should build");
+        let handle = data.tile_state.runtime.tile_handles_by_layer[0][0].expect("tile handle");
+
+        let _ = data.move_tile_by_handle(handle, (CHUNK_SIZE - 8) as f32, 40.0);
+        let memberships_a = tile_memberships_for_handle(&data, handle);
+        assert!(
+            memberships_a.len() > 1,
+            "oversized tile should span multiple chunks near border"
+        );
+
+        let _ = data.move_tile_by_handle(handle, 32.0, 96.0);
+        let memberships_b = tile_memberships_for_handle(&data, handle);
+        assert_eq!(memberships_b.len(), 1);
+    }
+
     #[test]
     fn draw_sequence_respects_runtime_visible_and_alive_flags() {
         let mut map = Map::__new_for_stamp_overflow_test(1);
