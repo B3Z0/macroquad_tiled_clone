@@ -72,7 +72,7 @@ impl Map {
     pub fn draw_visible_rect_with_stamp(&mut self, view_min: Vec2, view_max: Vec2, stamp: u32) {
         self.render_state.sync_with_data(&self.data);
         let coords = self.visible_coords_for_draw(view_min, view_max);
-        for tile_layer_idx in 0..self.data.tile_layers.len() {
+        for tile_layer_idx in 0..self.data.tile_state.layer_draw_info.len() {
             self.draw_tile_layer_from_coords(&coords, tile_layer_idx, stamp);
         }
     }
@@ -87,9 +87,15 @@ impl Map {
     pub fn draw(&mut self, view_min: Vec2, view_max: Vec2) {
         let coords = self.visible_coords_for_draw(view_min, view_max);
         let stamp = self.next_frame_stamp();
-        for i in 0..self.data.draw_order.len() {
-            let layer_id = self.data.draw_order[i];
-            let Some(kind) = self.data.layer_kind_by_id.get(&layer_id).copied() else {
+        for i in 0..self.data.layer_plan.draw_order.len() {
+            let layer_id = self.data.layer_plan.draw_order[i];
+            let Some(kind) = self
+                .data
+                .layer_plan
+                .layer_kind_by_id
+                .get(&layer_id)
+                .copied()
+            else {
                 continue;
             };
             match kind {
@@ -157,14 +163,20 @@ impl Map {
         tile_layer_idx: usize,
         stamp: u32,
     ) {
-        let Some(layer) = self.data.tile_layers.get(tile_layer_idx).copied() else {
+        let Some(layer) = self
+            .data
+            .tile_state
+            .layer_draw_info
+            .get(tile_layer_idx)
+            .copied()
+        else {
             return;
         };
         if !layer.visible {
             return;
         }
         let tint = Color::new(1.0, 1.0, 1.0, layer.opacity);
-        let gid_lut = &self.data.gid_lut;
+        let gid_lut = &self.data.tile_state.gid_lut;
         let tilesets = &self.assets.tilesets;
         let seen = &mut self.render_state.seen_tiles;
 
@@ -229,7 +241,7 @@ impl Map {
         coords: &[crate::spatial::ChunkCoord],
         stamp: u32,
     ) {
-        for layer_idx in 0..self.data.object_layers.len() {
+        for layer_idx in 0..self.data.object_state.layers.len() {
             self.draw_object_debug_layer_from_coords(coords, layer_idx, stamp);
         }
     }
@@ -239,7 +251,7 @@ impl Map {
         coords: &[crate::spatial::ChunkCoord],
         stamp: u32,
     ) {
-        for layer_idx in 0..self.data.object_layers.len() {
+        for layer_idx in 0..self.data.object_state.layers.len() {
             self.draw_object_tiles_layer_from_coords(coords, layer_idx, stamp);
         }
     }
@@ -251,7 +263,7 @@ impl Map {
         stamp: u32,
     ) {
         self.render_state.sync_with_data(&self.data);
-        let Some(layer) = self.data.object_layers.get(layer_idx) else {
+        let Some(layer) = self.data.object_state.layers.get(layer_idx) else {
             return;
         };
         let Some(seen_debug) = self.render_state.seen_objects_debug.get_mut(layer_idx) else {
@@ -296,7 +308,8 @@ impl Map {
                     };
                     let Some(runtime) = self
                         .data
-                        .object_runtime_by_layer
+                        .object_state
+                        .runtime_by_layer
                         .get(layer_idx)
                         .and_then(|v| v.get(object_idx))
                         .and_then(|r| r.as_ref())
@@ -366,9 +379,9 @@ impl Map {
         stamp: u32,
     ) {
         self.render_state.sync_with_data(&self.data);
-        let gid_lut = &self.data.gid_lut;
+        let gid_lut = &self.data.tile_state.gid_lut;
         let tilesets = &self.assets.tilesets;
-        let Some(layer) = self.data.object_layers.get(layer_idx) else {
+        let Some(layer) = self.data.object_state.layers.get(layer_idx) else {
             return;
         };
         let Some(seen_tiles) = self.render_state.seen_objects_tiles.get_mut(layer_idx) else {
@@ -408,7 +421,8 @@ impl Map {
                     };
                     let Some(runtime) = self
                         .data
-                        .object_runtime_by_layer
+                        .object_state
+                        .runtime_by_layer
                         .get(layer_idx)
                         .and_then(|v| v.get(object_idx))
                         .and_then(|r| r.as_ref())

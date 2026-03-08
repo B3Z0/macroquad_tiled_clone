@@ -10,7 +10,8 @@ impl MapData {
             return false;
         };
         let Some(Some(runtime)) = self
-            .object_runtime_by_layer
+            .object_state
+            .runtime_by_layer
             .get_mut(layer_idx)
             .and_then(|v| v.get_mut(object_idx))
         else {
@@ -26,7 +27,7 @@ impl MapData {
             return false;
         };
         let (bucket_layer, offset) = {
-            let Some(layer) = self.object_layers.get(layer_idx) else {
+            let Some(layer) = self.object_state.layers.get(layer_idx) else {
                 return false;
             };
             (layer.bucket_layer, layer.offset)
@@ -34,7 +35,8 @@ impl MapData {
 
         let runtime_snapshot = {
             let Some(Some(runtime)) = self
-                .object_runtime_by_layer
+                .object_state
+                .runtime_by_layer
                 .get_mut(layer_idx)
                 .and_then(|v| v.get_mut(object_idx))
             else {
@@ -76,7 +78,7 @@ impl MapData {
         let Some((layer_idx, object_idx)) = self.object_location(handle) else {
             return false;
         };
-        let Some(layer) = self.object_layers.get(layer_idx) else {
+        let Some(layer) = self.object_state.layers.get(layer_idx) else {
             return false;
         };
         if layer.objects.get(object_idx).is_none() {
@@ -84,7 +86,8 @@ impl MapData {
         }
         let runtime_snapshot = {
             let Some(Some(runtime)) = self
-                .object_runtime_by_layer
+                .object_state
+                .runtime_by_layer
                 .get_mut(layer_idx)
                 .and_then(|v| v.get_mut(object_idx))
             else {
@@ -125,15 +128,19 @@ impl MapData {
         if !self.index.remove_object(handle) {
             return false;
         }
-        if let Some(slot) = self.object_location_by_handle.get_mut(handle.0 as usize) {
+        if let Some(slot) = self
+            .object_state
+            .location_by_handle
+            .get_mut(handle.0 as usize)
+        {
             *slot = None;
         }
-        if let Some(layer_handles) = self.object_handles_by_layer.get_mut(layer_idx) {
+        if let Some(layer_handles) = self.object_state.handles_by_layer.get_mut(layer_idx) {
             if let Some(slot) = layer_handles.get_mut(object_idx) {
                 *slot = None;
             }
         }
-        if let Some(runtime_layer) = self.object_runtime_by_layer.get_mut(layer_idx) {
+        if let Some(runtime_layer) = self.object_state.runtime_by_layer.get_mut(layer_idx) {
             if let Some(slot) = runtime_layer.get_mut(object_idx) {
                 *slot = None;
             }
@@ -148,28 +155,30 @@ impl MapData {
         object: IrObject,
     ) -> Option<ObjectHandle> {
         let (object_idx, bucket_layer, layer_offset) = {
-            let layer = self.object_layers.get_mut(layer_idx)?;
+            let layer = self.object_state.layers.get_mut(layer_idx)?;
             let object_idx = layer.objects.len();
             layer.objects.push(object.clone());
             (object_idx, layer.bucket_layer, layer.offset)
         };
 
-        if self.object_handles_by_layer.len() <= layer_idx {
-            self.object_handles_by_layer
+        if self.object_state.handles_by_layer.len() <= layer_idx {
+            self.object_state
+                .handles_by_layer
                 .resize_with(layer_idx + 1, Vec::new);
         }
-        if self.object_runtime_by_layer.len() <= layer_idx {
-            self.object_runtime_by_layer
+        if self.object_state.runtime_by_layer.len() <= layer_idx {
+            self.object_state
+                .runtime_by_layer
                 .resize_with(layer_idx + 1, Vec::new);
         }
 
         let handle = self.index.alloc_object_handle();
         let hidx = handle.0 as usize;
-        if self.object_location_by_handle.len() <= hidx {
-            self.object_location_by_handle.resize(hidx + 1, None);
+        if self.object_state.location_by_handle.len() <= hidx {
+            self.object_state.location_by_handle.resize(hidx + 1, None);
         }
-        self.object_location_by_handle[hidx] = Some((layer_idx, object_idx));
-        self.object_handles_by_layer[layer_idx].push(Some(handle));
+        self.object_state.location_by_handle[hidx] = Some((layer_idx, object_idx));
+        self.object_state.handles_by_layer[layer_idx].push(Some(handle));
 
         let runtime = ObjectRuntimeState {
             alive: true,
@@ -179,7 +188,7 @@ impl MapData {
             width: object.width,
             height: object.height,
         };
-        self.object_runtime_by_layer[layer_idx].push(Some(runtime));
+        self.object_state.runtime_by_layer[layer_idx].push(Some(runtime));
 
         let placements = self.object_placements_for_runtime(
             layer_idx,
@@ -202,7 +211,8 @@ impl MapData {
         layer_offset: Vec2,
     ) -> Option<Vec<(LayerIdx, crate::spatial::ChunkCoord, Vec2)>> {
         let authored = self
-            .object_layers
+            .object_state
+            .layers
             .get(layer_idx)
             .and_then(|layer| layer.objects.get(object_idx))?;
 
@@ -225,7 +235,8 @@ impl MapData {
             return;
         };
         let Some(runtime) = self
-            .object_runtime_by_layer
+            .object_state
+            .runtime_by_layer
             .get(layer_idx)
             .and_then(|v| v.get(object_idx))
             .and_then(|r| r.as_ref())

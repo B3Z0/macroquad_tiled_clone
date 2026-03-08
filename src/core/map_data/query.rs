@@ -3,12 +3,13 @@ use super::*;
 impl MapData {
     /// Returns parsed object layers for inspection/querying.
     pub fn object_layers(&self) -> &[ObjectLayer] {
-        &self.object_layers
+        &self.object_state.layers
     }
 
     /// Iterates all parsed objects across all object layers.
     pub fn objects(&self) -> impl Iterator<Item = &IrObject> {
-        self.object_layers
+        self.object_state
+            .layers
             .iter()
             .flat_map(|layer| layer.objects.iter())
     }
@@ -24,7 +25,7 @@ impl MapData {
         view_max: Vec2,
         filter: ObjectQueryFilter<'_>,
     ) -> Vec<ObjectHandle> {
-        let Some(layer) = self.object_layers.get(layer_idx) else {
+        let Some(layer) = self.object_state.layers.get(layer_idx) else {
             return Vec::new();
         };
         if !layer.visible {
@@ -41,7 +42,8 @@ impl MapData {
                 return false;
             }
             let Some(runtime) = self
-                .object_runtime_by_layer
+                .object_state
+                .runtime_by_layer
                 .get(handle_layer_idx)
                 .and_then(|v| v.get(object_slot_idx))
                 .and_then(|r| r.as_ref())
@@ -52,7 +54,8 @@ impl MapData {
                 return false;
             }
             let Some(obj) = self
-                .object_layers
+                .object_state
+                .layers
                 .get(handle_layer_idx)
                 .and_then(|layer| layer.objects.get(object_slot_idx))
             else {
@@ -94,11 +97,13 @@ impl MapData {
 
     pub(crate) fn object_location(&self, handle: ObjectHandle) -> Option<(usize, usize)> {
         let (layer_idx, object_idx) = self
-            .object_location_by_handle
+            .object_state
+            .location_by_handle
             .get(handle.0 as usize)?
             .as_ref()?;
         let slot_handle = self
-            .object_handles_by_layer
+            .object_state
+            .handles_by_layer
             .get(*layer_idx)?
             .get(*object_idx)?
             .as_ref()?;
@@ -110,7 +115,8 @@ impl MapData {
 
     pub(crate) fn object_by_handle(&self, handle: ObjectHandle) -> Option<&IrObject> {
         let (layer_idx, object_idx) = self.object_location(handle)?;
-        self.object_layers
+        self.object_state
+            .layers
             .get(layer_idx)
             .and_then(|layer| layer.objects.get(object_idx))
     }
@@ -120,7 +126,8 @@ impl MapData {
         handle: ObjectHandle,
     ) -> Option<&ObjectRuntimeState> {
         let (layer_idx, object_idx) = self.object_location(handle)?;
-        self.object_runtime_by_layer
+        self.object_state
+            .runtime_by_layer
             .get(layer_idx)?
             .get(object_idx)?
             .as_ref()
@@ -131,7 +138,7 @@ impl MapData {
         layer_idx: usize,
         coords: &[crate::spatial::ChunkCoord],
     ) -> Vec<ObjectHandle> {
-        let Some(layer) = self.object_layers.get(layer_idx) else {
+        let Some(layer) = self.object_state.layers.get(layer_idx) else {
             return Vec::new();
         };
         let mut handles = self

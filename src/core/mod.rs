@@ -12,3 +12,4 @@ pub(crate) use map_data::{
     TileLayerDrawInfo,
 };
 pub use map_data::{LayerId, MapData, ObjectLayer, ObjectQueryFilter, ObjectRuntimeState};
+pub(crate) use map_data::{LayerPlan, ObjectState, TileState};

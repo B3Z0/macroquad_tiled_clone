@@ -10,7 +10,12 @@ impl MapData {
         let mut layers_json = Vec::new();
         for (layer_z, layer_ir) in self.source_ir.layers.iter().enumerate() {
             let props = properties_to_json_vec(&layer_ir.properties);
-            match self.layer_kind_by_id.get(&(layer_z as LayerId)).copied() {
+            match self
+                .layer_plan
+                .layer_kind_by_id
+                .get(&(layer_z as LayerId))
+                .copied()
+            {
                 Some(LayerKindInfo::Tiles(_tile_layer_idx)) => {
                     let IrLayerKind::Tiles {
                         width,
@@ -34,20 +39,22 @@ impl MapData {
                     }));
                 }
                 Some(LayerKindInfo::Objects(object_layer_idx)) => {
-                    let Some(layer) = self.object_layers.get(object_layer_idx) else {
+                    let Some(layer) = self.object_state.layers.get(object_layer_idx) else {
                         continue;
                     };
                     let mut objects_json = Vec::new();
                     for (idx, authored) in layer.objects.iter().enumerate() {
                         let Some(Some(_handle)) = self
-                            .object_handles_by_layer
+                            .object_state
+                            .handles_by_layer
                             .get(object_layer_idx)
                             .and_then(|v| v.get(idx))
                         else {
                             continue;
                         };
                         let Some(runtime) = self
-                            .object_runtime_by_layer
+                            .object_state
+                            .runtime_by_layer
                             .get(object_layer_idx)
                             .and_then(|v| v.get(idx))
                             .and_then(|r| r.as_ref())

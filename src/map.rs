@@ -1,4 +1,5 @@
 use crate::core::LayerKindInfo;
+use crate::core::{LayerPlan, ObjectState, TileState};
 use crate::ir_map::*;
 use crate::loader::json_loader::*;
 use crate::render::{MacroquadRenderAssets, RenderState};
@@ -139,15 +140,21 @@ impl Map {
                     }],
                 },
                 index,
-                tilesets: vec![],
-                object_layers: vec![object_layer],
-                object_location_by_handle,
-                object_handles_by_layer: vec![object_handles],
-                object_runtime_by_layer: vec![object_runtime],
-                gid_lut: vec![],
-                tile_layers: vec![],
-                draw_order: vec![0],
-                layer_kind_by_id,
+                object_state: ObjectState {
+                    layers: vec![object_layer],
+                    location_by_handle: object_location_by_handle,
+                    handles_by_layer: vec![object_handles],
+                    runtime_by_layer: vec![object_runtime],
+                },
+                tile_state: TileState {
+                    tilesets: vec![],
+                    gid_lut: vec![],
+                    layer_draw_info: vec![],
+                },
+                layer_plan: LayerPlan {
+                    draw_order: vec![0],
+                    layer_kind_by_id,
+                },
             },
             assets: MacroquadRenderAssets { tilesets: vec![] },
             render_state: RenderState::default(),

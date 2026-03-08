@@ -212,15 +212,21 @@ impl MapData {
         Ok(Self {
             source_ir: ir,
             index,
-            tilesets,
-            object_layers,
-            object_location_by_handle,
-            object_handles_by_layer,
-            object_runtime_by_layer,
-            gid_lut,
-            tile_layers,
-            draw_order,
-            layer_kind_by_id,
+            object_state: ObjectState {
+                layers: object_layers,
+                location_by_handle: object_location_by_handle,
+                handles_by_layer: object_handles_by_layer,
+                runtime_by_layer: object_runtime_by_layer,
+            },
+            tile_state: TileState {
+                tilesets,
+                gid_lut,
+                layer_draw_info: tile_layers,
+            },
+            layer_plan: LayerPlan {
+                draw_order,
+                layer_kind_by_id,
+            },
         })
     }
 }
