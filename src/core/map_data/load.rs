@@ -83,13 +83,13 @@ impl MapData {
         let mut tile_layers: Vec<TileLayerDrawInfo> = Vec::new();
         let (draw_order, layer_kind_by_id) = build_draw_order_and_kind(&ir.layers);
 
-        for (lz, layer) in ir.layers.iter().enumerate() {
+        for (layer_z, layer) in ir.layers.iter().enumerate() {
             match &layer.kind {
                 IrLayerKind::Objects { objects } => {
-                    let bucket_layer = lz as LayerIdx;
+                    let bucket_layer = layer_z as LayerIdx;
                     let layer_idx = object_layers.len();
                     object_layers.push(ObjectLayer {
-                        id: lz as LayerId,
+                        id: layer_z as LayerId,
                         name: layer.name.clone(),
                         visible: layer.visible,
                         opacity: layer.opacity,
@@ -143,7 +143,7 @@ impl MapData {
                     object_handles_by_layer.push(handles_in_layer);
                     object_runtime_by_layer.push(runtime_in_layer);
                     debug_assert!(matches!(
-                        layer_kind_by_id.get(&(lz as LayerId)),
+                        layer_kind_by_id.get(&(layer_z as LayerId)),
                         Some(LayerKindInfo::Objects(idx)) if *idx == layer_idx
                     ));
                 }
@@ -152,7 +152,7 @@ impl MapData {
                     height: _,
                     data,
                 } => {
-                    let lid = lz as LayerIdx;
+                    let tile_layer_id = layer_z as LayerIdx;
                     let tile_layer_idx = tile_layers.len();
 
                     let tw = ir.tile_w as f32;
@@ -184,24 +184,24 @@ impl MapData {
                                     index.insert_tile_with_handle(
                                         handle,
                                         tile_id,
-                                        lid,
+                                        tile_layer_id,
                                         cc,
                                         draw_origin,
                                     );
                                 }
                             }
                         } else {
-                            index.add_tile(tile_id, lid, draw_origin);
+                            index.add_tile(tile_id, tile_layer_id, draw_origin);
                         }
                     }
 
                     tile_layers.push(TileLayerDrawInfo {
-                        layer_id: lid,
+                        layer_id: tile_layer_id,
                         visible: layer.visible,
                         opacity: layer.opacity.clamp(0.0, 1.0),
                     });
                     debug_assert!(matches!(
-                        layer_kind_by_id.get(&(lz as LayerId)),
+                        layer_kind_by_id.get(&(layer_z as LayerId)),
                         Some(LayerKindInfo::Tiles(idx)) if *idx == tile_layer_idx
                     ));
                 }

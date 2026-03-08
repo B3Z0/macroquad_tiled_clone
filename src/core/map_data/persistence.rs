@@ -8,9 +8,9 @@ impl MapData {
         let p = Path::new(path);
 
         let mut layers_json = Vec::new();
-        for (lz, layer_ir) in self.source_ir.layers.iter().enumerate() {
+        for (layer_z, layer_ir) in self.source_ir.layers.iter().enumerate() {
             let props = properties_to_json_vec(&layer_ir.properties);
-            match self.layer_kind_by_id.get(&(lz as LayerId)).copied() {
+            match self.layer_kind_by_id.get(&(layer_z as LayerId)).copied() {
                 Some(LayerKindInfo::Tiles(_tile_layer_idx)) => {
                     let IrLayerKind::Tiles {
                         width,

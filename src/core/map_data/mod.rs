@@ -108,8 +108,8 @@ pub(crate) fn build_draw_order_and_kind(
     let mut tile_layer_idx = 0usize;
     let mut object_layer_idx = 0usize;
 
-    for (lz, layer) in layers.iter().enumerate() {
-        let stable_id = lz as LayerId;
+    for (layer_z, layer) in layers.iter().enumerate() {
+        let stable_id = layer_z as LayerId;
         draw_order.push(stable_id);
         match layer.kind {
             IrLayerKind::Tiles { .. } => {
