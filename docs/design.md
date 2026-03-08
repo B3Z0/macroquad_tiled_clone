@@ -32,6 +32,7 @@ Current ownership split:
 - `src/core/*`
   - `MapData` is the canonical mutable runtime truth model.
   - `derived_index: GlobalIndex` inside `MapData` is derived query/index cache, rebuildable from canonical object/tile state.
+  - Object and tile handle mutation/query APIs are implemented in core and synchronized eagerly to `derived_index`.
   - Layer ordering metadata and spatial index construction.
   - Chunk visibility coordinate helpers for view rectangles.
   - Must not import from `crate::render`.
@@ -72,6 +73,7 @@ Canonical state boundary rule:
   - `index_sync.rs`: object placement/index consistency helpers
 - `tile/`
   - `load.rs`: tileset LUT + tile index population
+  - `mutate.rs`: handle-centric tile mutation + batch/region helpers
   - `query.rs`: visible chunk coordinate derivation
   - `index_sync.rs`: tile chunk span helpers
   - `draw.rs`: tile draw-origin math
@@ -122,6 +124,14 @@ When composing passes manually in one frame:
 - Objects spanning multiple chunks are inserted into all overlapped chunks (AABB-based).
 - Per-layer stamp buffers dedupe objects so each object is drawn once per pass.
 - Stamp overflow (`u32::MAX`) is handled by buffer reset and wrap to `1`.
+
+## Tile Handle Runtime Contract
+
+- Tiles use stable `TileHandle` identity with canonical runtime ownership in `tile_state.runtime`.
+- Tile runtime state includes `alive`/`visible` and runtime gid/world-position.
+- Tile mutations by handle are eager-synced to `derived_index` in the same operation.
+- Region tile queries/mutations are deterministic and deduped by handle.
+- Tile rendering is gated by runtime `alive` and `visible` flags.
 
 ## Error Handling
 

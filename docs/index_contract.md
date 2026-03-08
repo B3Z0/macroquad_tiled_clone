@@ -29,6 +29,14 @@ Each handle space has a LUT:
 - Tile LUT: `Vec<Option<TileLoc>>`
 - Object LUT: `Vec<Option<ObjectLoc>>`
 - Object membership index: `Vec<Vec<ObjectMembership>>`
+- Canonical tile handle location map in `MapData::tile_state.runtime`:
+  - `tile_location_by_handle`
+  - `tile_handles_by_layer`
+  - `tile_runtime_by_layer`
+- Canonical object handle location map in `MapData::object_state`:
+  - `object_location_by_handle`
+  - `object_handles_by_layer`
+  - `object_runtime_by_layer`
 
 Where each location stores:
 
@@ -38,6 +46,7 @@ Where each location stores:
 
 The LUT entry points to a canonical slot for that logical record.
 For objects, the membership index stores all `(chunk, layer)` memberships owned by the handle.
+For tiles, canonical runtime ownership is held by `tile_state.runtime`, while index memberships are derived from runtime state.
 
 ## Insert Semantics
 
@@ -66,15 +75,33 @@ Return value:
 
 ## Update Semantics
 
-- `update_object_memberships(handle, placements)` atomically replaces all memberships for a live object handle.
-- Old memberships are removed first, then new memberships are inserted with the same handle identity.
-- This supports object "move" behavior across chunk boundaries while preserving one logical handle.
+- Objects:
+  - `update_object_memberships(handle, placements)` atomically replaces all memberships for a live object handle.
+  - Old memberships are removed first, then new memberships are inserted with the same handle identity.
+  - Supports object move behavior across chunk boundaries while preserving one logical handle.
+- Tiles:
+  - Tile handle mutations (`update_tile_gid_by_handle`, `move_tile_by_handle`, `set_tile_alive_by_handle`, `remove_tile_by_handle`) update canonical runtime and derived index in one operation.
+  - Mutation path validates target index entries first, then commits runtime state and index changes.
+  - Dead (`alive = false`) tiles have no index memberships; revived tiles rebuild memberships from runtime position/gid.
 
 ## Multi-Chunk Membership and Dedupe
 
 - Multiple chunk entries may share one handle.
 - That handle remains one logical identity for dedupe/removal.
 - Removing by handle clears all memberships for that logical identity.
+- Tile render/query dedupe is by handle identity, so one logical tile spanning many chunks appears once per pass/query output.
+
+## Stale/Invalid Handle Behavior
+
+- Invalid handle (out-of-range / never allocated): lookup returns `None`, mutation returns `false`.
+- Stale handle (allocated then removed/slot-cleared): lookup returns `None`, mutation returns `false`.
+- Region/batch helpers skip stale/invalid handles and only count successful updates.
+
+## Region Query and Mutation Contract
+
+- Region queries (`query_visible_tile_handles`, `query_visible_tile_handles_all`) return deterministic, deduped handle outputs.
+- Optional filter path (`TileQueryFilter.gid`) matches clean gid values.
+- Region mutation helpers (`replace_visible_tiles_gid_in_rect`, `disable_visible_tiles_in_rect`) are data-oriented and immediately visible in subsequent query/render operations.
 
 ## Overflow Policy
 
@@ -84,3 +111,20 @@ Handle counters are `u32` and monotonic.
 - No wraparound is allowed.
 
 This makes overflow behavior explicit and prevents accidental handle aliasing.
+
+## Contract Tests (Current Coverage)
+
+- Tile/object insert-get-remove stale-handle safety:
+  - `spatial::index::tests::tile_insert_get_remove_and_stale_lookup_fail_safely`
+  - `spatial::index::tests::object_insert_get_remove_and_stale_lookup_fail_safely`
+- No stale slot reuse after remove:
+  - `tile_reinsert_after_remove_has_no_stale_slot_access`
+  - `object_reinsert_after_remove_has_no_stale_slot_access`
+- Multi-chunk single-identity semantics:
+  - `tile_multi_chunk_entries_keep_one_logical_identity`
+  - `object_multi_chunk_entries_keep_one_logical_identity`
+- Canonical mutation sync + determinism stress:
+  - `tile_randomized_mutation_sequence_keeps_index_consistent`
+  - `tile_randomized_mutation_sequence_is_deterministic`
+  - `randomized_mutation_sequence_keeps_index_consistent`
+  - `randomized_mutation_sequence_is_deterministic`

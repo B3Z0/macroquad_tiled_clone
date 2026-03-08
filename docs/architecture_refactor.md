@@ -66,7 +66,10 @@ Current `MapData` ownership from [src/core/map_data/mod.rs](../src/core/map_data
 - `source_ir: IrMap` (canonical authored source)
 - `derived_index: GlobalIndex` (derived query/index cache, not canonical truth)
 - `object_state: ObjectState` (canonical object runtime state + handle maps)
-- `tile_state: TileState` (canonical tile runtime metadata + derived tile draw metadata)
+- `tile_state: TileState` with explicit compartments:
+  - `authored: TileAuthoredState`
+  - `runtime: TileRuntimeStore`
+  - `derived: TileDerivedState`
 - `layer_plan: LayerPlan` (deterministic layer traversal plan)
 
 `ObjectState`:
@@ -76,9 +79,13 @@ Current `MapData` ownership from [src/core/map_data/mod.rs](../src/core/map_data
 - `object_runtime_by_layer`
 
 `TileState`:
-- `tileset_runtime_info`
-- `gid_lut`
-- `tile_layer_draw_info`
+- `authored.tile_layers`
+- `authored.tileset_runtime_info`
+- `runtime.tile_location_by_handle`
+- `runtime.tile_handles_by_layer`
+- `runtime.tile_runtime_by_layer`
+- `derived.gid_lut`
+- `derived.tile_layer_draw_info`
 
 `LayerPlan`:
 - `draw_order`
@@ -103,8 +110,8 @@ Current `MapData` ownership from [src/core/map_data/mod.rs](../src/core/map_data
   - canonical save/export
 - `src/core/map_data/object/{load,mutate,query,index_sync}.rs`
   - object state build, handle-centric mutation/query, index sync helpers
-- `src/core/map_data/tile/{load,query,index_sync,draw}.rs`
-  - tile state build/query/index helpers and draw-origin math
+- `src/core/map_data/tile/{load,mutate,query,index_sync,draw}.rs`
+  - tile state build, handle-centric mutation/query, index helpers, and draw-origin math
 - `src/core/map_data/shared/{geometry,layer_plan,tags}.rs`
   - shared geometry/layer-planning/tag helpers
 - `src/render/assets.rs`
@@ -120,6 +127,12 @@ Current `MapData` ownership from [src/core/map_data/mod.rs](../src/core/map_data
 - No runtime behavior changes in readability-only tickets
 - No breaking public API changes
 - No coupling of render internals back into canonical state
+
+## Unified Handle Contract Status
+
+- Objects and tiles now both support canonical runtime handle maps plus handle-centric mutation/query APIs.
+- Both paths use eager canonical->index synchronization and deterministic dedupe behavior.
+- Stale/invalid handles fail safely (`None`/`false`) for both object and tile operations.
 
 ## Acceptance Checklist
 - Architecture boundary is explicit and documented.
