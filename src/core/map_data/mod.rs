@@ -139,7 +139,7 @@ pub struct MapData {
     pub(crate) index: GlobalIndex,
     pub(crate) tilesets: Vec<TilesetRuntimeInfo>,
     pub(crate) object_layers: Vec<ObjectLayer>,
-    pub(crate) object_loc_by_handle: Vec<Option<(usize, usize)>>,
+    pub(crate) object_location_by_handle: Vec<Option<(usize, usize)>>,
     pub(crate) object_handles_by_layer: Vec<Vec<Option<ObjectHandle>>>,
     pub(crate) object_runtime_by_layer: Vec<Vec<Option<ObjectRuntimeState>>>,
     pub(crate) gid_lut: Vec<u16>, // lookup table for tile GIDs to tileset indices

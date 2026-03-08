@@ -142,7 +142,7 @@ mod tests {
                 objects: vec![make_object(1), make_object(2), make_object(3)],
                 bucket_layer: 0,
             }],
-            object_loc_by_handle: vec![Some((0, 0)), Some((0, 1)), Some((0, 2))],
+            object_location_by_handle: vec![Some((0, 0)), Some((0, 1)), Some((0, 2))],
             object_handles_by_layer: vec![vec![
                 Some(crate::spatial::ObjectHandle(0)),
                 Some(crate::spatial::ObjectHandle(1)),
@@ -369,7 +369,7 @@ mod tests {
                 index,
                 tilesets: vec![],
                 object_layers: vec![],
-                object_loc_by_handle: vec![],
+                object_location_by_handle: vec![],
                 object_handles_by_layer: vec![],
                 object_runtime_by_layer: vec![],
                 gid_lut: vec![],
@@ -451,7 +451,7 @@ mod tests {
                     objects,
                     bucket_layer: 1,
                 }],
-                object_loc_by_handle: {
+                object_location_by_handle: {
                     let mut v = vec![None; (object_handle.0 as usize) + 1];
                     v[object_handle.0 as usize] = Some((0, 0));
                     v
@@ -576,7 +576,7 @@ mod tests {
                 index,
                 tilesets: vec![],
                 object_layers: vec![],
-                object_loc_by_handle: vec![],
+                object_location_by_handle: vec![],
                 object_handles_by_layer: vec![],
                 object_runtime_by_layer: vec![],
                 gid_lut: vec![],
@@ -1627,3 +1627,4 @@ mod tests {
         }
     }
 }
+

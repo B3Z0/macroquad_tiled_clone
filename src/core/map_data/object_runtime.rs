@@ -125,7 +125,7 @@ impl MapData {
         if !self.index.remove_object(handle) {
             return false;
         }
-        if let Some(slot) = self.object_loc_by_handle.get_mut(handle.0 as usize) {
+        if let Some(slot) = self.object_location_by_handle.get_mut(handle.0 as usize) {
             *slot = None;
         }
         if let Some(layer_handles) = self.object_handles_by_layer.get_mut(layer_idx) {
@@ -165,10 +165,10 @@ impl MapData {
 
         let handle = self.index.alloc_object_handle();
         let hidx = handle.0 as usize;
-        if self.object_loc_by_handle.len() <= hidx {
-            self.object_loc_by_handle.resize(hidx + 1, None);
+        if self.object_location_by_handle.len() <= hidx {
+            self.object_location_by_handle.resize(hidx + 1, None);
         }
-        self.object_loc_by_handle[hidx] = Some((layer_idx, object_idx));
+        self.object_location_by_handle[hidx] = Some((layer_idx, object_idx));
         self.object_handles_by_layer[layer_idx].push(Some(handle));
 
         let runtime = ObjectRuntimeState {

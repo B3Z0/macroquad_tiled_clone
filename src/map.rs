@@ -67,7 +67,7 @@ impl Map {
     pub fn __new_for_stamp_overflow_test(object_count: usize) -> Self {
         let mut index = GlobalIndex::new();
         let mut objects = Vec::with_capacity(object_count);
-        let mut object_loc_by_handle = Vec::with_capacity(object_count);
+        let mut object_location_by_handle = Vec::with_capacity(object_count);
         let mut object_handles = Vec::with_capacity(object_count);
         let mut object_runtime = Vec::with_capacity(object_count);
         for i in 0..object_count {
@@ -85,7 +85,7 @@ impl Map {
                 properties: Properties::default(),
             });
             let handle = index.alloc_object_handle();
-            object_loc_by_handle.push(Some((0, i)));
+            object_location_by_handle.push(Some((0, i)));
             object_handles.push(Some(handle));
             object_runtime.push(Some(ObjectRuntimeState {
                 alive: true,
@@ -141,7 +141,7 @@ impl Map {
                 index,
                 tilesets: vec![],
                 object_layers: vec![object_layer],
-                object_loc_by_handle,
+                object_location_by_handle,
                 object_handles_by_layer: vec![object_handles],
                 object_runtime_by_layer: vec![object_runtime],
                 gid_lut: vec![],

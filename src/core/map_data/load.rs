@@ -7,7 +7,7 @@ impl MapData {
         Self::from_ir(ir)
     }
 
-    fn ts_for_gid_from<'a>(
+    fn tileset_for_gid_from<'a>(
         gid: TileId,
         gid_lut: &'a [u16],
         tilesets: &'a [TilesetRuntimeInfo],
@@ -77,7 +77,7 @@ impl MapData {
 
         let mut index = GlobalIndex::new();
         let mut object_layers = Vec::new();
-        let mut object_loc_by_handle = Vec::new();
+        let mut object_location_by_handle = Vec::new();
         let mut object_handles_by_layer = Vec::new();
         let mut object_runtime_by_layer = Vec::new();
         let mut tile_layers: Vec<TileLayerDrawInfo> = Vec::new();
@@ -104,10 +104,10 @@ impl MapData {
                     for (object_idx, obj) in objects.iter().enumerate() {
                         let handle = index.alloc_object_handle();
                         let handle_idx = handle.0 as usize;
-                        if handle_idx >= object_loc_by_handle.len() {
-                            object_loc_by_handle.resize(handle_idx + 1, None);
+                        if handle_idx >= object_location_by_handle.len() {
+                            object_location_by_handle.resize(handle_idx + 1, None);
                         }
-                        object_loc_by_handle[handle_idx] = Some((layer_idx, object_idx));
+                        object_location_by_handle[handle_idx] = Some((layer_idx, object_idx));
                         handles_in_layer.push(Some(handle));
                         runtime_in_layer.push(Some(ObjectRuntimeState {
                             alive: true,
@@ -166,7 +166,8 @@ impl MapData {
                         let mut world = vec2(col as f32 * tw, row as f32 * th);
                         world += layer.offset;
                         let tile_id = TileId(*gid);
-                        let Some((ts, _)) = Self::ts_for_gid_from(tile_id, &gid_lut, &tilesets)
+                        let Some((ts, _)) =
+                            Self::tileset_for_gid_from(tile_id, &gid_lut, &tilesets)
                         else {
                             continue;
                         };
@@ -213,7 +214,7 @@ impl MapData {
             index,
             tilesets,
             object_layers,
-            object_loc_by_handle,
+            object_location_by_handle,
             object_handles_by_layer,
             object_runtime_by_layer,
             gid_lut,

@@ -36,7 +36,7 @@ impl Map {
     }
 
     #[inline]
-    pub(crate) fn ts_for_gid_from<'a>(
+    pub(crate) fn tileset_for_gid_from<'a>(
         gid: TileId,
         gid_lut: &'a [u16],
         tilesets: &'a [MacroquadTilesetAsset],
@@ -184,7 +184,7 @@ impl Map {
                     }
                     seen[handle_idx] = stamp;
 
-                    let (ts, local) = match Self::ts_for_gid_from(rec.id, gid_lut, tilesets) {
+                    let (ts, local) = match Self::tileset_for_gid_from(rec.id, gid_lut, tilesets) {
                         Some(x) => x,
                         None => continue,
                     };
@@ -429,7 +429,8 @@ impl Map {
                     );
 
                     let gid = TileId(gid);
-                    let Some((ts, local)) = Self::ts_for_gid_from(gid, gid_lut, tilesets) else {
+                    let Some((ts, local)) = Self::tileset_for_gid_from(gid, gid_lut, tilesets)
+                    else {
                         continue;
                     };
 

@@ -89,7 +89,10 @@ impl MapData {
     }
 
     pub(crate) fn object_location(&self, handle: ObjectHandle) -> Option<(usize, usize)> {
-        let (layer_idx, object_idx) = self.object_loc_by_handle.get(handle.0 as usize)?.as_ref()?;
+        let (layer_idx, object_idx) = self
+            .object_location_by_handle
+            .get(handle.0 as usize)?
+            .as_ref()?;
         let slot_handle = self
             .object_handles_by_layer
             .get(*layer_idx)?
