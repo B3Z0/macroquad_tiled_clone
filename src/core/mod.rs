@@ -11,7 +11,9 @@ pub(crate) use map_data::{
     build_draw_order_and_kind, object_chunk_span, object_chunk_span_runtime, tile_draw_origin,
     TileLayerDrawInfo,
 };
-pub use map_data::{LayerId, MapData, ObjectLayer, ObjectQueryFilter, ObjectRuntimeState};
+pub use map_data::{
+    LayerId, MapData, ObjectLayer, ObjectQueryFilter, ObjectRuntimeState, TileQueryFilter,
+};
 pub(crate) use map_data::{
     LayerPlan, ObjectState, TileAuthoredState, TileDerivedState, TileRuntimeStore, TileState,
 };

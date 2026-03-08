@@ -831,6 +831,97 @@ mod tests {
     }
 
     #[test]
+    fn visible_tile_region_query_is_deterministic_and_deduped() {
+        let map = make_oversized_tile_runtime_test_map();
+        let handle = map.data.tile_state.runtime.tile_handles_by_layer[0][0].expect("tile handle");
+        let a = map.query_visible_tile_handles(
+            0,
+            vec2(0.0, 0.0),
+            vec2((CHUNK_SIZE + 80) as f32, 140.0),
+            TileQueryFilter::default(),
+        );
+        let b = map.query_visible_tile_handles(
+            0,
+            vec2(0.0, 0.0),
+            vec2((CHUNK_SIZE + 80) as f32, 140.0),
+            TileQueryFilter::default(),
+        );
+        assert_eq!(a, b);
+        assert_eq!(a, vec![handle]);
+    }
+
+    #[test]
+    fn visible_tile_region_query_supports_gid_filter_and_relocation() {
+        let ir = IrMap {
+            tile_w: 16,
+            tile_h: 16,
+            properties: Properties::default(),
+            tilesets: vec![IrTileset::Atlas {
+                first_gid: 1,
+                source: "mock.tsx".to_string(),
+                image: "mock.png".to_string(),
+                tile_w: 16,
+                tile_h: 16,
+                tilecount: 2,
+                columns: 2,
+                spacing: 0,
+                margin: 0,
+                properties: Properties::default(),
+                tiles: vec![],
+            }],
+            layers: vec![IrLayer {
+                name: "tiles".to_string(),
+                visible: true,
+                opacity: 1.0,
+                offset: Vec2::ZERO,
+                properties: Properties::default(),
+                kind: IrLayerKind::Tiles {
+                    width: 2,
+                    height: 1,
+                    data: vec![1, 2],
+                },
+            }],
+        };
+        let mut map = Map {
+            data: MapData::from_ir(ir).expect("map data from IR should build"),
+            assets: MacroquadRenderAssets { tilesets: vec![] },
+            render_state: RenderState::default(),
+        };
+
+        let all = map.query_visible_tile_handles(
+            0,
+            vec2(0.0, 0.0),
+            vec2(64.0, 32.0),
+            TileQueryFilter::default(),
+        );
+        assert_eq!(all.len(), 2);
+        let gid2 = map.query_visible_tile_handles(
+            0,
+            vec2(0.0, 0.0),
+            vec2(64.0, 32.0),
+            TileQueryFilter { gid: Some(2) },
+        );
+        assert_eq!(gid2.len(), 1);
+        assert!(all.contains(&gid2[0]));
+
+        assert!(map.data.move_tile_by_handle(gid2[0], 1248.0, 1248.0));
+        let old = map.query_visible_tile_handles(
+            0,
+            vec2(0.0, 0.0),
+            vec2(64.0, 32.0),
+            TileQueryFilter { gid: Some(2) },
+        );
+        assert!(old.is_empty());
+        let new = map.query_visible_tile_handles(
+            0,
+            vec2(1200.0, 1200.0),
+            vec2(1280.0, 1280.0),
+            TileQueryFilter { gid: Some(2) },
+        );
+        assert_eq!(new, vec![gid2[0]]);
+    }
+
+    #[test]
     fn fixture_layer_ordering_matches_tiled_order() {
         let ir = load_fixture_ir("external_props_map.json");
         let (draw_order, kinds) = build_draw_order_and_kind(&ir.layers);

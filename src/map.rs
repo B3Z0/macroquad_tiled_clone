@@ -11,6 +11,7 @@ use macroquad::prelude::*;
 use std::collections::HashMap;
 use std::path::Path;
 
+pub use crate::core::TileQueryFilter;
 #[cfg(test)]
 use crate::core::{build_draw_order_and_kind, TileLayerDrawInfo};
 #[cfg(test)]
@@ -18,9 +19,9 @@ use crate::core::{object_chunk_span, tile_draw_origin};
 pub use crate::core::{LayerId, MapData, ObjectLayer, ObjectQueryFilter, ObjectRuntimeState};
 #[cfg(test)]
 use crate::render::cull::{query_visible_rect, visible_chunk_coords_rect};
-pub use crate::spatial::ObjectHandle;
 #[cfg(test)]
-use crate::spatial::{world_to_chunk, LayerIdx, TileHandle, TileId, CHUNK_SIZE};
+use crate::spatial::{world_to_chunk, LayerIdx, TileId, CHUNK_SIZE};
+pub use crate::spatial::{ObjectHandle, TileHandle};
 
 /// Loaded Tiled map with rendering helpers.
 ///
@@ -330,6 +331,33 @@ impl Map {
     ) -> Vec<u32> {
         self.data
             .query_visible_object_ids(layer_idx, view_min, view_max, filter)
+    }
+
+    /// Queries visible tile handles for one tile layer in a world-space rectangle.
+    ///
+    /// Results are deduplicated and deterministic.
+    pub fn query_visible_tile_handles(
+        &self,
+        layer_idx: usize,
+        view_min: Vec2,
+        view_max: Vec2,
+        filter: TileQueryFilter,
+    ) -> Vec<TileHandle> {
+        self.data
+            .query_visible_tile_handles(layer_idx, view_min, view_max, filter)
+    }
+
+    /// Queries visible tile handles across all tile layers in a world-space rectangle.
+    ///
+    /// Results are deterministic and sorted by `(layer_idx, handle)`.
+    pub fn query_visible_tile_handles_all(
+        &self,
+        view_min: Vec2,
+        view_max: Vec2,
+        filter: TileQueryFilter,
+    ) -> Vec<(usize, TileHandle)> {
+        self.data
+            .query_visible_tile_handles_all(view_min, view_max, filter)
     }
 
     /// Enables/disables object debug overlay drawing used by [`Map::draw`].

@@ -9,6 +9,7 @@ pub const CHUNK_SIZE: i32 = 256;
 pub struct TileId(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Stable handle identity for tile records in the spatial index.
 pub struct TileHandle(pub u32);
 
 pub type LayerIdx = u16;

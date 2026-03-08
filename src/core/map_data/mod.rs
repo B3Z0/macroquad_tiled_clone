@@ -100,6 +100,13 @@ pub struct ObjectQueryFilter<'a> {
     pub tag: Option<&'a str>,
 }
 
+/// Optional filters for visible tile queries.
+#[derive(Clone, Copy, Default)]
+pub struct TileQueryFilter {
+    /// Exact match against tile gid (clean gid without flip flags).
+    pub gid: Option<u32>,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct TileLayerDrawInfo {
     pub(crate) layer_id: LayerIdx,
