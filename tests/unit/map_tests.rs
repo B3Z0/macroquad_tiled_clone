@@ -888,11 +888,11 @@ mod tests {
         assert!(!memberships.is_empty());
 
         assert!(data.set_object_visible_by_handle(handle, false));
-        assert_eq!(
-            data.object_runtime_by_handle(handle)
+        assert!(
+            !data
+                .object_runtime_by_handle(handle)
                 .expect("runtime should exist")
-                .visible,
-            false
+                .visible
         );
         assert!(data.set_object_alive_by_handle(handle, false));
         assert!(data.index.object_memberships(handle).is_none());
@@ -1025,7 +1025,7 @@ mod tests {
                     let Some(runtime) = map
                         .data
                         .object_runtime_by_layer
-                        .get(0)
+                        .first()
                         .and_then(|v| v.get(idx))
                         .and_then(|s| s.as_ref())
                     else {
@@ -1330,7 +1330,7 @@ mod tests {
         let persisted = persisted_objects_for_policy_test(&map, 0);
         assert_eq!(persisted.len(), 1);
         assert_eq!(persisted[0].id, 3001);
-        assert_eq!(persisted[0].visible, false);
+        assert!(!persisted[0].visible);
         assert_eq!(persisted[0].x, 111.0);
         assert_eq!(persisted[0].y, 222.0);
         assert_eq!(persisted[0].width, 33.0);
