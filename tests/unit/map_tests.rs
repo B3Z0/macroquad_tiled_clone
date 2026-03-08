@@ -176,12 +176,19 @@ mod tests {
                 ]],
             },
             tile_state: TileState {
-                tile_location_by_handle: vec![],
-                tile_handles_by_layer: vec![],
-                tile_runtime_by_layer: vec![],
-                tileset_runtime_info: vec![],
-                gid_lut: vec![],
-                tile_layer_draw_info: vec![],
+                authored: TileAuthoredState {
+                    tile_layers: vec![],
+                    tileset_runtime_info: vec![],
+                },
+                runtime: TileRuntimeStore {
+                    tile_location_by_handle: vec![],
+                    tile_handles_by_layer: vec![],
+                    tile_runtime_by_layer: vec![],
+                },
+                derived: TileDerivedState {
+                    gid_lut: vec![],
+                    tile_layer_draw_info: vec![],
+                },
             },
             layer_plan: LayerPlan {
                 draw_order: vec![],
@@ -224,7 +231,14 @@ mod tests {
         stamp: u32,
     ) -> Vec<u32> {
         map.render_state.sync_with_data(&map.data);
-        let Some(layer) = map.data.tile_state.tile_layer_draw_info.get(tile_layer_idx).copied() else {
+        let Some(layer) = map
+            .data
+            .tile_state
+            .derived
+            .tile_layer_draw_info
+            .get(tile_layer_idx)
+            .copied()
+        else {
             return Vec::new();
         };
         let mut out = Vec::new();
@@ -269,7 +283,13 @@ mod tests {
 
             match kind {
                 LayerKindInfo::Tiles(tile_layer_idx) => {
-                    let Some(layer) = map.data.tile_state.tile_layer_draw_info.get(tile_layer_idx) else {
+                    let Some(layer) = map
+                        .data
+                        .tile_state
+                        .derived
+                        .tile_layer_draw_info
+                        .get(tile_layer_idx)
+                    else {
                         continue;
                     };
                     if !layer.visible {
@@ -383,16 +403,23 @@ mod tests {
                     object_runtime_by_layer: vec![],
                 },
                 tile_state: TileState {
-                    tile_location_by_handle: vec![],
-                    tile_handles_by_layer: vec![],
-                    tile_runtime_by_layer: vec![],
-                    tileset_runtime_info: vec![],
-                    gid_lut: vec![],
-                    tile_layer_draw_info: vec![TileLayerDrawInfo {
-                        layer_id: 0,
-                        visible: true,
-                        opacity: 1.0,
-                    }],
+                    authored: TileAuthoredState {
+                        tile_layers: vec![],
+                        tileset_runtime_info: vec![],
+                    },
+                    runtime: TileRuntimeStore {
+                        tile_location_by_handle: vec![],
+                        tile_handles_by_layer: vec![],
+                        tile_runtime_by_layer: vec![],
+                    },
+                    derived: TileDerivedState {
+                        gid_lut: vec![],
+                        tile_layer_draw_info: vec![TileLayerDrawInfo {
+                            layer_id: 0,
+                            visible: true,
+                            opacity: 1.0,
+                        }],
+                    },
                 },
                 layer_plan: LayerPlan {
                     draw_order: vec![0],
@@ -485,23 +512,30 @@ mod tests {
                     })]],
                 },
                 tile_state: TileState {
-                    tile_location_by_handle: vec![],
-                    tile_handles_by_layer: vec![],
-                    tile_runtime_by_layer: vec![],
-                    tileset_runtime_info: vec![],
-                    gid_lut: vec![],
-                    tile_layer_draw_info: vec![
-                        TileLayerDrawInfo {
-                            layer_id: 0,
-                            visible: true,
-                            opacity: 1.0,
-                        },
-                        TileLayerDrawInfo {
-                            layer_id: 2,
-                            visible: true,
-                            opacity: 1.0,
-                        },
-                    ],
+                    authored: TileAuthoredState {
+                        tile_layers: vec![],
+                        tileset_runtime_info: vec![],
+                    },
+                    runtime: TileRuntimeStore {
+                        tile_location_by_handle: vec![],
+                        tile_handles_by_layer: vec![],
+                        tile_runtime_by_layer: vec![],
+                    },
+                    derived: TileDerivedState {
+                        gid_lut: vec![],
+                        tile_layer_draw_info: vec![
+                            TileLayerDrawInfo {
+                                layer_id: 0,
+                                visible: true,
+                                opacity: 1.0,
+                            },
+                            TileLayerDrawInfo {
+                                layer_id: 2,
+                                visible: true,
+                                opacity: 1.0,
+                            },
+                        ],
+                    },
                 },
                 layer_plan: LayerPlan {
                     draw_order: vec![0, 1, 2],
@@ -608,16 +642,23 @@ mod tests {
                     object_runtime_by_layer: vec![],
                 },
                 tile_state: TileState {
-                    tile_location_by_handle: vec![],
-                    tile_handles_by_layer: vec![],
-                    tile_runtime_by_layer: vec![],
-                    tileset_runtime_info: vec![],
-                    gid_lut: vec![],
-                    tile_layer_draw_info: vec![TileLayerDrawInfo {
-                        layer_id: 0,
-                        visible: true,
-                        opacity: 1.0,
-                    }],
+                    authored: TileAuthoredState {
+                        tile_layers: vec![],
+                        tileset_runtime_info: vec![],
+                    },
+                    runtime: TileRuntimeStore {
+                        tile_location_by_handle: vec![],
+                        tile_handles_by_layer: vec![],
+                        tile_runtime_by_layer: vec![],
+                    },
+                    derived: TileDerivedState {
+                        gid_lut: vec![],
+                        tile_layer_draw_info: vec![TileLayerDrawInfo {
+                            layer_id: 0,
+                            visible: true,
+                            opacity: 1.0,
+                        }],
+                    },
                 },
                 layer_plan: LayerPlan {
                     draw_order: vec![0],
@@ -657,7 +698,8 @@ mod tests {
         let path_str = path.to_str().expect("fixture path must be utf-8");
         let data = MapData::load(path_str).expect("map data should load headlessly");
         assert_eq!(data.object_state.object_layers.len(), 1);
-        assert_eq!(data.tile_state.tile_layer_draw_info.len(), 2);
+        assert_eq!(data.tile_state.derived.tile_layer_draw_info.len(), 2);
+        assert_eq!(data.tile_state.authored.tile_layers.len(), 2);
         assert_eq!(data.layer_plan.draw_order, vec![0, 1, 2]);
     }
 
@@ -668,16 +710,22 @@ mod tests {
         let data = MapData::load(path_str).expect("map data should load headlessly");
 
         assert_eq!(
-            data.tile_state.tile_handles_by_layer.len(),
-            data.tile_state.tile_layer_draw_info.len()
+            data.tile_state.runtime.tile_handles_by_layer.len(),
+            data.tile_state.derived.tile_layer_draw_info.len()
         );
         assert_eq!(
-            data.tile_state.tile_runtime_by_layer.len(),
-            data.tile_state.tile_layer_draw_info.len()
+            data.tile_state.runtime.tile_runtime_by_layer.len(),
+            data.tile_state.derived.tile_layer_draw_info.len()
         );
 
-        for (layer_idx, layer_handles) in data.tile_state.tile_handles_by_layer.iter().enumerate() {
-            let runtime_layer = &data.tile_state.tile_runtime_by_layer[layer_idx];
+        for (layer_idx, layer_handles) in data
+            .tile_state
+            .runtime
+            .tile_handles_by_layer
+            .iter()
+            .enumerate()
+        {
+            let runtime_layer = &data.tile_state.runtime.tile_runtime_by_layer[layer_idx];
             assert_eq!(layer_handles.len(), runtime_layer.len());
 
             for (slot_idx, handle_slot) in layer_handles.iter().enumerate() {
@@ -687,6 +735,7 @@ mod tests {
 
                 let location = data
                     .tile_state
+                    .runtime
                     .tile_location_by_handle
                     .get(handle.0 as usize)
                     .and_then(|loc| *loc)

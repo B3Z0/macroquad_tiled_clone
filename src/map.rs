@@ -1,5 +1,7 @@
 use crate::core::LayerKindInfo;
-use crate::core::{LayerPlan, ObjectState, TileState};
+use crate::core::{
+    LayerPlan, ObjectState, TileAuthoredState, TileDerivedState, TileRuntimeStore, TileState,
+};
 use crate::ir_map::*;
 use crate::loader::json_loader::*;
 use crate::render::{MacroquadRenderAssets, RenderState};
@@ -147,12 +149,19 @@ impl Map {
                     object_runtime_by_layer: vec![object_runtime],
                 },
                 tile_state: TileState {
-                    tile_location_by_handle: vec![],
-                    tile_handles_by_layer: vec![],
-                    tile_runtime_by_layer: vec![],
-                    tileset_runtime_info: vec![],
-                    gid_lut: vec![],
-                    tile_layer_draw_info: vec![],
+                    authored: TileAuthoredState {
+                        tile_layers: vec![],
+                        tileset_runtime_info: vec![],
+                    },
+                    runtime: TileRuntimeStore {
+                        tile_location_by_handle: vec![],
+                        tile_handles_by_layer: vec![],
+                        tile_runtime_by_layer: vec![],
+                    },
+                    derived: TileDerivedState {
+                        gid_lut: vec![],
+                        tile_layer_draw_info: vec![],
+                    },
                 },
                 layer_plan: LayerPlan {
                     draw_order: vec![0],

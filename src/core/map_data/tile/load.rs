@@ -1,7 +1,8 @@
 //! Tile state build from authored tile layers and tilesets.
 
 use super::super::{
-    LayerId, LayerKindInfo, TileLayerDrawInfo, TileRuntimeState, TileState, TilesetRuntimeInfo,
+    LayerId, LayerKindInfo, TileAuthoredState, TileDerivedState, TileLayer, TileLayerDrawInfo,
+    TileRuntimeState, TileRuntimeStore, TileState, TilesetRuntimeInfo,
 };
 use super::{draw::tile_draw_origin, index_sync::tile_chunk_span};
 use crate::ir_map::{IrLayer, IrLayerKind, IrMap, IrTileset};
@@ -45,6 +46,7 @@ pub(crate) fn build_tile_state_from_ir(
     let mut tile_location_by_handle = Vec::new();
     let mut tile_handles_by_layer = Vec::new();
     let mut tile_runtime_by_layer = Vec::new();
+    let mut tile_layers = Vec::new();
     let mut tile_layer_draw_info: Vec<TileLayerDrawInfo> = Vec::new();
     let mut build_ctx = TileIndexBuildCtx {
         tilesets: &tilesets,
@@ -69,6 +71,27 @@ pub(crate) fn build_tile_state_from_ir(
             continue;
         };
 
+        let IrLayerKind::Tiles {
+            width,
+            height,
+            data,
+        } = &layer.kind
+        else {
+            continue;
+        };
+        tile_layers.push(TileLayer {
+            id: layer_z as LayerId,
+            name: layer.name.clone(),
+            visible: layer.visible,
+            opacity: layer.opacity,
+            offset: layer.offset,
+            properties: layer.properties.clone(),
+            width: *width,
+            height: *height,
+            data: data.clone(),
+            bucket_layer: tile_layer_id,
+        });
+
         tile_layer_draw_info.push(TileLayerDrawInfo {
             layer_id: tile_layer_id,
             visible: layer.visible,
@@ -83,12 +106,19 @@ pub(crate) fn build_tile_state_from_ir(
     }
 
     TileState {
-        tile_location_by_handle,
-        tile_handles_by_layer,
-        tile_runtime_by_layer,
-        tileset_runtime_info: tilesets,
-        gid_lut,
-        tile_layer_draw_info,
+        authored: TileAuthoredState {
+            tile_layers,
+            tileset_runtime_info: tilesets,
+        },
+        runtime: TileRuntimeStore {
+            tile_location_by_handle,
+            tile_handles_by_layer,
+            tile_runtime_by_layer,
+        },
+        derived: TileDerivedState {
+            gid_lut,
+            tile_layer_draw_info,
+        },
     }
 }
 

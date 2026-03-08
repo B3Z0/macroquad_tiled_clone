@@ -72,7 +72,7 @@ impl Map {
     pub fn draw_visible_rect_with_stamp(&mut self, view_min: Vec2, view_max: Vec2, stamp: u32) {
         self.render_state.sync_with_data(&self.data);
         let coords = self.visible_coords_for_draw(view_min, view_max);
-        for tile_layer_idx in 0..self.data.tile_state.tile_layer_draw_info.len() {
+        for tile_layer_idx in 0..self.data.tile_state.derived.tile_layer_draw_info.len() {
             self.draw_tile_layer_from_coords(&coords, tile_layer_idx, stamp);
         }
     }
@@ -166,6 +166,7 @@ impl Map {
         let Some(layer) = self
             .data
             .tile_state
+            .derived
             .tile_layer_draw_info
             .get(tile_layer_idx)
             .copied()
@@ -176,7 +177,7 @@ impl Map {
             return;
         }
         let tint = Color::new(1.0, 1.0, 1.0, layer.opacity);
-        let gid_lut = &self.data.tile_state.gid_lut;
+        let gid_lut = &self.data.tile_state.derived.gid_lut;
         let tilesets = &self.assets.tilesets;
         let seen = &mut self.render_state.seen_tiles;
 
@@ -379,7 +380,7 @@ impl Map {
         stamp: u32,
     ) {
         self.render_state.sync_with_data(&self.data);
-        let gid_lut = &self.data.tile_state.gid_lut;
+        let gid_lut = &self.data.tile_state.derived.gid_lut;
         let tilesets = &self.assets.tilesets;
         let Some(layer) = self.data.object_state.object_layers.get(layer_idx) else {
             return;

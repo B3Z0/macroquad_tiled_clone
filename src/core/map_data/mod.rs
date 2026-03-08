@@ -37,6 +37,21 @@ pub struct TilesetRuntimeInfo {
     pub margin: u32,
 }
 
+/// A Tiled tile layer parsed from the map.
+#[allow(dead_code)]
+pub(crate) struct TileLayer {
+    pub(crate) id: LayerId,
+    pub(crate) name: String,
+    pub(crate) visible: bool,
+    pub(crate) opacity: f32,
+    pub(crate) offset: Vec2,
+    pub(crate) properties: Properties,
+    pub(crate) width: usize,
+    pub(crate) height: usize,
+    pub(crate) data: Vec<u32>,
+    pub(crate) bucket_layer: LayerIdx,
+}
+
 /// A Tiled object layer parsed from the map.
 ///
 /// Stable API: this struct is exposed for inspection/querying (`Map::object_layers`),
@@ -126,13 +141,28 @@ pub(crate) struct ObjectState {
 }
 
 pub(crate) struct TileState {
+    pub(crate) authored: TileAuthoredState,
+    #[allow(dead_code)]
+    pub(crate) runtime: TileRuntimeStore,
+    pub(crate) derived: TileDerivedState,
+}
+
+pub(crate) struct TileAuthoredState {
+    #[allow(dead_code)]
+    pub(crate) tile_layers: Vec<TileLayer>,
+    pub(crate) tileset_runtime_info: Vec<TilesetRuntimeInfo>,
+}
+
+pub(crate) struct TileRuntimeStore {
     #[allow(dead_code)]
     pub(crate) tile_location_by_handle: Vec<Option<(usize, usize)>>,
     #[allow(dead_code)]
     pub(crate) tile_handles_by_layer: Vec<Vec<Option<TileHandle>>>,
     #[allow(dead_code)]
     pub(crate) tile_runtime_by_layer: Vec<Vec<Option<TileRuntimeState>>>,
-    pub(crate) tileset_runtime_info: Vec<TilesetRuntimeInfo>,
+}
+
+pub(crate) struct TileDerivedState {
     pub(crate) gid_lut: Vec<u16>, // lookup table for tile GIDs to tileset indices
     pub(crate) tile_layer_draw_info: Vec<TileLayerDrawInfo>,
 }
