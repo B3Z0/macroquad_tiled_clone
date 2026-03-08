@@ -266,6 +266,57 @@ mod tests {
         out
     }
 
+    fn collect_renderable_tile_handles_with_stamp_for_test(
+        map: &mut Map,
+        coords: &[crate::spatial::ChunkCoord],
+        tile_layer_idx: usize,
+        stamp: u32,
+    ) -> Vec<u32> {
+        map.render_state.sync_with_data(&map.data);
+        let Some(layer) = map
+            .data
+            .tile_state
+            .derived
+            .tile_layer_draw_info
+            .get(tile_layer_idx)
+            .copied()
+        else {
+            return Vec::new();
+        };
+        if !layer.visible {
+            return Vec::new();
+        }
+
+        let seen = &mut map.render_state.seen_tiles;
+        let mut out = Vec::new();
+        Map::for_each_visible_layer_bucket(
+            &map.data.derived_index,
+            coords,
+            layer.layer_id,
+            |_cc, bucket| {
+                for rec in &bucket.tiles {
+                    let idx = rec.handle.0 as usize;
+                    if idx >= seen.len() {
+                        continue;
+                    }
+                    if seen[idx] == stamp {
+                        continue;
+                    }
+                    seen[idx] = stamp;
+
+                    let Some(runtime) = map.data.tile_runtime_by_handle(rec.handle) else {
+                        continue;
+                    };
+                    if !runtime.alive || !runtime.visible {
+                        continue;
+                    }
+                    out.push(rec.handle.0);
+                }
+            },
+        );
+        out
+    }
+
     fn collect_draw_sequence_for_test(
         map: &mut Map,
         view_min: Vec2,
@@ -430,6 +481,48 @@ mod tests {
                     },
                 },
             },
+            assets: MacroquadRenderAssets { tilesets: vec![] },
+            render_state: RenderState::default(),
+        }
+    }
+
+    fn make_oversized_tile_runtime_test_map() -> Map {
+        let ir = IrMap {
+            tile_w: 16,
+            tile_h: 16,
+            properties: Properties::default(),
+            tilesets: vec![IrTileset::Atlas {
+                first_gid: 1,
+                source: "mock.tsx".to_string(),
+                image: "mock.png".to_string(),
+                tile_w: 64,
+                tile_h: 64,
+                tilecount: 1,
+                columns: 1,
+                spacing: 0,
+                margin: 0,
+                properties: Properties::default(),
+                tiles: vec![],
+            }],
+            layers: vec![IrLayer {
+                name: "tiles".to_string(),
+                visible: true,
+                opacity: 1.0,
+                offset: Vec2::ZERO,
+                properties: Properties::default(),
+                kind: IrLayerKind::Tiles {
+                    width: 1,
+                    height: 1,
+                    data: vec![1],
+                },
+            }],
+        };
+        let mut data = MapData::from_ir(ir).expect("map data from IR should build");
+        let handle = data.tile_state.runtime.tile_handles_by_layer[0][0].expect("tile handle");
+        assert!(data.move_tile_by_handle(handle, (CHUNK_SIZE - 8) as f32, 40.0));
+
+        Map {
+            data,
             assets: MacroquadRenderAssets { tilesets: vec![] },
             render_state: RenderState::default(),
         }
@@ -680,6 +773,61 @@ mod tests {
 
         assert_eq!(handles.len(), 1);
         assert_eq!(handles[0], handle.0);
+    }
+
+    #[test]
+    fn tile_runtime_mutation_preserves_render_dedupe_and_visibility() {
+        let mut map = make_oversized_tile_runtime_test_map();
+        let handle = map.data.tile_state.runtime.tile_handles_by_layer[0][0].expect("tile handle");
+        let coords =
+            visible_chunk_coords_rect(vec2(0.0, 0.0), vec2((CHUNK_SIZE + 60) as f32, 100.0));
+
+        let s1 = map.next_frame_stamp();
+        let h1 = collect_renderable_tile_handles_with_stamp_for_test(&mut map, &coords, 0, s1);
+        assert_eq!(h1, vec![handle.0], "oversized tile should dedupe to one logical draw");
+
+        assert!(map.data.set_tile_visible_by_handle(handle, false));
+        let s2 = map.next_frame_stamp();
+        let h2 = collect_renderable_tile_handles_with_stamp_for_test(&mut map, &coords, 0, s2);
+        assert!(h2.is_empty(), "invisible tile must not be renderable");
+
+        assert!(map.data.set_tile_visible_by_handle(handle, true));
+        assert!(map.data.set_tile_alive_by_handle(handle, false));
+        let s3 = map.next_frame_stamp();
+        let h3 = collect_renderable_tile_handles_with_stamp_for_test(&mut map, &coords, 0, s3);
+        assert!(h3.is_empty(), "dead tile must not be renderable");
+
+        assert!(map.data.set_tile_alive_by_handle(handle, true));
+        let s4 = map.next_frame_stamp();
+        let h4 = collect_renderable_tile_handles_with_stamp_for_test(&mut map, &coords, 0, s4);
+        assert_eq!(h4, vec![handle.0], "revived tile should become renderable again");
+    }
+
+    #[test]
+    fn tile_move_preserves_cull_region_expectations() {
+        let mut map = make_oversized_tile_runtime_test_map();
+        let handle = map.data.tile_state.runtime.tile_handles_by_layer[0][0].expect("tile handle");
+
+        let near_old =
+            visible_chunk_coords_rect(vec2(0.0, 0.0), vec2((CHUNK_SIZE + 20) as f32, 120.0));
+        let far_new = visible_chunk_coords_rect(vec2(1200.0, 1200.0), vec2(1280.0, 1280.0));
+
+        let s1 = map.next_frame_stamp();
+        let old_before =
+            collect_renderable_tile_handles_with_stamp_for_test(&mut map, &near_old, 0, s1);
+        assert_eq!(old_before, vec![handle.0]);
+
+        assert!(map.data.move_tile_by_handle(handle, 1248.0, 1248.0));
+
+        let s2 = map.next_frame_stamp();
+        let old_after =
+            collect_renderable_tile_handles_with_stamp_for_test(&mut map, &near_old, 0, s2);
+        assert!(old_after.is_empty(), "tile moved away should leave old cull window");
+
+        let s3 = map.next_frame_stamp();
+        let new_after =
+            collect_renderable_tile_handles_with_stamp_for_test(&mut map, &far_new, 0, s3);
+        assert_eq!(new_after, vec![handle.0], "tile moved should appear in new cull window");
     }
 
     #[test]
