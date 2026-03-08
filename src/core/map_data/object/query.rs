@@ -35,45 +35,7 @@ impl MapData {
 
         let coords = self.visible_coords_for_draw(view_min, view_max, 0.0);
         let mut out = self.query_object_handles_in_coords(layer_idx, &coords);
-        out.retain(|&handle| {
-            let Some((handle_layer_idx, object_slot_idx)) = self.object_location(handle) else {
-                return false;
-            };
-            if handle_layer_idx != layer_idx {
-                return false;
-            }
-            let Some(runtime) = self
-                .object_state
-                .object_runtime_by_layer
-                .get(handle_layer_idx)
-                .and_then(|v| v.get(object_slot_idx))
-                .and_then(|r| r.as_ref())
-            else {
-                return false;
-            };
-            if !runtime.alive || !runtime.visible {
-                return false;
-            }
-            let Some(obj) = self
-                .object_state
-                .object_layers
-                .get(handle_layer_idx)
-                .and_then(|layer| layer.objects.get(object_slot_idx))
-            else {
-                return false;
-            };
-            if let Some(kind) = filter.kind {
-                if obj.class_name != kind {
-                    return false;
-                }
-            }
-            if let Some(tag) = filter.tag {
-                if !object_has_tag(obj, tag) {
-                    return false;
-                }
-            }
-            true
-        });
+        out.retain(|&handle| self.object_handle_matches_filter(layer_idx, handle, filter));
         out
     }
 
@@ -147,5 +109,56 @@ impl MapData {
             .dedup_object_handles_in_coords(coords, layer.bucket_layer);
         handles.sort_by_key(|h| h.0);
         handles
+    }
+
+    fn object_handle_matches_filter(
+        &self,
+        layer_idx: usize,
+        handle: ObjectHandle,
+        filter: ObjectQueryFilter<'_>,
+    ) -> bool {
+        let Some((handle_layer_idx, object_slot_idx)) = self.object_location(handle) else {
+            return false;
+        };
+        if handle_layer_idx != layer_idx {
+            return false;
+        }
+
+        let Some(runtime) = self
+            .object_state
+            .object_runtime_by_layer
+            .get(handle_layer_idx)
+            .and_then(|v| v.get(object_slot_idx))
+            .and_then(|r| r.as_ref())
+        else {
+            return false;
+        };
+        if !runtime.alive || !runtime.visible {
+            return false;
+        }
+
+        let Some(obj) = self
+            .object_state
+            .object_layers
+            .get(handle_layer_idx)
+            .and_then(|layer| layer.objects.get(object_slot_idx))
+        else {
+            return false;
+        };
+        self.object_matches_filter(obj, filter)
+    }
+
+    fn object_matches_filter(&self, obj: &IrObject, filter: ObjectQueryFilter<'_>) -> bool {
+        if let Some(kind) = filter.kind {
+            if obj.class_name != kind {
+                return false;
+            }
+        }
+        if let Some(tag) = filter.tag {
+            if !object_has_tag(obj, tag) {
+                return false;
+            }
+        }
+        true
     }
 }

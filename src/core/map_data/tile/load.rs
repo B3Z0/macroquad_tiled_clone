@@ -25,8 +25,36 @@ pub(crate) fn build_tile_state_from_ir(
     layer_kind_by_id: &HashMap<LayerId, LayerKindInfo>,
     index: &mut GlobalIndex,
 ) -> TileState {
-    let mut tilesets = Vec::new();
+    let (tilesets, gid_lut) = build_tileset_runtime_and_lut(ir);
 
+    let mut tile_layer_draw_info: Vec<TileLayerDrawInfo> = Vec::new();
+    for (layer_z, layer) in ir.layers.iter().enumerate() {
+        let tile_layer_idx = tile_layer_draw_info.len();
+        let Some(tile_layer_id) =
+            index_tile_layer_records(ir, layer, layer_z, &tilesets, &gid_lut, index)
+        else {
+            continue;
+        };
+
+        tile_layer_draw_info.push(TileLayerDrawInfo {
+            layer_id: tile_layer_id,
+            visible: layer.visible,
+            opacity: layer.opacity.clamp(0.0, 1.0),
+        });
+        debug_assert!(matches!(
+            layer_kind_by_id.get(&(layer_z as LayerId)),
+            Some(LayerKindInfo::Tiles(idx)) if *idx == tile_layer_idx
+        ));
+    }
+
+    TileState {
+        tileset_runtime_info: tilesets,
+        gid_lut,
+        tile_layer_draw_info,
+    }
+}
+
+fn build_tileset_runtime_and_lut(ir: &IrMap) -> (Vec<TilesetRuntimeInfo>, Vec<u16>) {
     let mut max_gid = 0u32;
     for t in &ir.tilesets {
         match t {
@@ -40,8 +68,8 @@ pub(crate) fn build_tile_state_from_ir(
         }
     }
 
+    let mut tilesets = Vec::new();
     let mut gid_lut = vec![u16::MAX; (max_gid + 1) as usize];
-
     for (i, t) in ir.tilesets.iter().enumerate() {
         match t {
             IrTileset::Atlas {
@@ -72,74 +100,69 @@ pub(crate) fn build_tile_state_from_ir(
             }
         }
     }
+    (tilesets, gid_lut)
+}
 
-    let mut tile_layer_draw_info: Vec<TileLayerDrawInfo> = Vec::new();
+fn index_tile_layer_records(
+    ir: &IrMap,
+    layer: &IrLayer,
+    layer_z: usize,
+    tilesets: &[TilesetRuntimeInfo],
+    gid_lut: &[u16],
+    index: &mut GlobalIndex,
+) -> Option<LayerIdx> {
+    let IrLayerKind::Tiles {
+        width,
+        height: _,
+        data,
+    } = &layer.kind
+    else {
+        return None;
+    };
 
-    for (layer_z, layer) in ir.layers.iter().enumerate() {
-        let IrLayerKind::Tiles {
-            width,
-            height: _,
-            data,
-        } = &layer.kind
-        else {
+    let tile_layer_id = layer_z as LayerIdx;
+    let tw = ir.tile_w as f32;
+    let th = ir.tile_h as f32;
+
+    for (idx, gid) in data.iter().enumerate() {
+        if *gid == 0 {
+            continue;
+        }
+        let col = idx % *width;
+        let row = idx / *width;
+        let mut world = vec2(col as f32 * tw, row as f32 * th);
+        world += layer.offset;
+
+        let tile_id = TileId(*gid);
+        let Some((tileset, _)) = tileset_for_gid_from(tile_id, gid_lut, tilesets) else {
             continue;
         };
+        index_tile_record(ir, index, tile_layer_id, tile_id, world, tileset);
+    }
+    Some(tile_layer_id)
+}
 
-        let tile_layer_id = layer_z as LayerIdx;
-        let tile_layer_idx = tile_layer_draw_info.len();
-
-        let tw = ir.tile_w as f32;
-        let th = ir.tile_h as f32;
-        for (idx, gid) in data.iter().enumerate() {
-            if *gid == 0 {
-                continue;
-            }
-            let col = idx % *width;
-            let row = idx / *width;
-            let mut world = vec2(col as f32 * tw, row as f32 * th);
-            world += layer.offset;
-            let tile_id = TileId(*gid);
-            let Some((ts, _)) = tileset_for_gid_from(tile_id, &gid_lut, &tilesets) else {
-                continue;
-            };
-            let draw_origin = tile_draw_origin(world, ir.tile_h, ts.tile_h);
-            let oversized = ts.tile_w > ir.tile_w || ts.tile_h > ir.tile_h;
-
-            if oversized {
-                let handle = index.alloc_handle();
-                let (chunk_min, chunk_max) =
-                    tile_chunk_span(draw_origin, ts.tile_w as f32, ts.tile_h as f32);
-                for cy in chunk_min.y..=chunk_max.y {
-                    for cx in chunk_min.x..=chunk_max.x {
-                        let cc = crate::spatial::ChunkCoord { x: cx, y: cy };
-                        index.insert_tile_with_handle(
-                            handle,
-                            tile_id,
-                            tile_layer_id,
-                            cc,
-                            draw_origin,
-                        );
-                    }
-                }
-            } else {
-                index.add_tile(tile_id, tile_layer_id, draw_origin);
+fn index_tile_record(
+    ir: &IrMap,
+    index: &mut GlobalIndex,
+    tile_layer_id: LayerIdx,
+    tile_id: TileId,
+    world: Vec2,
+    tileset: &TilesetRuntimeInfo,
+) {
+    let draw_origin = tile_draw_origin(world, ir.tile_h, tileset.tile_h);
+    let oversized = tileset.tile_w > ir.tile_w || tileset.tile_h > ir.tile_h;
+    if oversized {
+        let handle = index.alloc_handle();
+        let (chunk_min, chunk_max) =
+            tile_chunk_span(draw_origin, tileset.tile_w as f32, tileset.tile_h as f32);
+        for cy in chunk_min.y..=chunk_max.y {
+            for cx in chunk_min.x..=chunk_max.x {
+                let cc = crate::spatial::ChunkCoord { x: cx, y: cy };
+                index.insert_tile_with_handle(handle, tile_id, tile_layer_id, cc, draw_origin);
             }
         }
-
-        tile_layer_draw_info.push(TileLayerDrawInfo {
-            layer_id: tile_layer_id,
-            visible: layer.visible,
-            opacity: layer.opacity.clamp(0.0, 1.0),
-        });
-        debug_assert!(matches!(
-            layer_kind_by_id.get(&(layer_z as LayerId)),
-            Some(LayerKindInfo::Tiles(idx)) if *idx == tile_layer_idx
-        ));
-    }
-
-    TileState {
-        tileset_runtime_info: tilesets,
-        gid_lut,
-        tile_layer_draw_info,
+    } else {
+        index.add_tile(tile_id, tile_layer_id, draw_origin);
     }
 }

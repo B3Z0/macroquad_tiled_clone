@@ -26,11 +26,8 @@ impl MapData {
         let Some((layer_idx, object_idx)) = self.object_location(handle) else {
             return false;
         };
-        let (bucket_layer, offset) = {
-            let Some(layer) = self.object_state.object_layers.get(layer_idx) else {
-                return false;
-            };
-            (layer.bucket_layer, layer.offset)
+        let Some((bucket_layer, offset)) = self.object_layer_context(layer_idx) else {
+            return false;
         };
 
         let runtime_snapshot = {
@@ -132,23 +129,7 @@ impl MapData {
         if !self.derived_index.remove_object(handle) {
             return false;
         }
-        if let Some(slot) = self
-            .object_state
-            .object_location_by_handle
-            .get_mut(handle.0 as usize)
-        {
-            *slot = None;
-        }
-        if let Some(layer_handles) = self.object_state.object_handles_by_layer.get_mut(layer_idx) {
-            if let Some(slot) = layer_handles.get_mut(object_idx) {
-                *slot = None;
-            }
-        }
-        if let Some(runtime_layer) = self.object_state.object_runtime_by_layer.get_mut(layer_idx) {
-            if let Some(slot) = runtime_layer.get_mut(object_idx) {
-                *slot = None;
-            }
-        }
+        self.clear_object_slots(handle, layer_idx, object_idx);
         self.debug_assert_object_sync_consistency(handle);
         true
     }
@@ -165,16 +146,7 @@ impl MapData {
             (object_idx, layer.bucket_layer, layer.offset)
         };
 
-        if self.object_state.object_handles_by_layer.len() <= layer_idx {
-            self.object_state
-                .object_handles_by_layer
-                .resize_with(layer_idx + 1, Vec::new);
-        }
-        if self.object_state.object_runtime_by_layer.len() <= layer_idx {
-            self.object_state
-                .object_runtime_by_layer
-                .resize_with(layer_idx + 1, Vec::new);
-        }
+        self.ensure_object_layer_slot_vectors(layer_idx);
 
         let handle = self.derived_index.alloc_object_handle();
         let hidx = handle.0 as usize;
@@ -208,5 +180,43 @@ impl MapData {
             .update_object_memberships(handle, &placements);
         self.debug_assert_object_sync_consistency(handle);
         Some(handle)
+    }
+
+    fn object_layer_context(&self, layer_idx: usize) -> Option<(LayerIdx, Vec2)> {
+        let layer = self.object_state.object_layers.get(layer_idx)?;
+        Some((layer.bucket_layer, layer.offset))
+    }
+
+    fn clear_object_slots(&mut self, handle: ObjectHandle, layer_idx: usize, object_idx: usize) {
+        if let Some(slot) = self
+            .object_state
+            .object_location_by_handle
+            .get_mut(handle.0 as usize)
+        {
+            *slot = None;
+        }
+        if let Some(layer_handles) = self.object_state.object_handles_by_layer.get_mut(layer_idx) {
+            if let Some(slot) = layer_handles.get_mut(object_idx) {
+                *slot = None;
+            }
+        }
+        if let Some(runtime_layer) = self.object_state.object_runtime_by_layer.get_mut(layer_idx) {
+            if let Some(slot) = runtime_layer.get_mut(object_idx) {
+                *slot = None;
+            }
+        }
+    }
+
+    fn ensure_object_layer_slot_vectors(&mut self, layer_idx: usize) {
+        if self.object_state.object_handles_by_layer.len() <= layer_idx {
+            self.object_state
+                .object_handles_by_layer
+                .resize_with(layer_idx + 1, Vec::new);
+        }
+        if self.object_state.object_runtime_by_layer.len() <= layer_idx {
+            self.object_state
+                .object_runtime_by_layer
+                .resize_with(layer_idx + 1, Vec::new);
+        }
     }
 }
