@@ -49,7 +49,6 @@ impl MapData {
         Some(runtime.id)
     }
 
-    #[allow(dead_code)]
     pub(crate) fn tile_runtime_by_handle(&self, handle: TileHandle) -> Option<&TileRuntimeState> {
         let (layer_idx, slot_idx) = self.tile_location(handle)?;
         self.tile_state
@@ -60,8 +59,7 @@ impl MapData {
             .as_ref()
     }
 
-    #[allow(dead_code)]
-    fn tile_location(&self, handle: TileHandle) -> Option<(usize, usize)> {
+    pub(super) fn tile_location(&self, handle: TileHandle) -> Option<(usize, usize)> {
         let (layer_idx, slot_idx) = self
             .tile_state
             .runtime

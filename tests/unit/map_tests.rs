@@ -1066,6 +1066,54 @@ mod tests {
     }
 
     #[test]
+    fn repeated_tile_mutation_and_remove_by_handle_is_deterministic() {
+        let path = fixture_path("external_props_map.json");
+        let path_str = path.to_str().expect("fixture path must be utf-8");
+        let mut data = MapData::load(path_str).expect("map data should load headlessly");
+
+        let handle = data
+            .tile_state
+            .runtime
+            .tile_handles_by_layer
+            .iter()
+            .find_map(|layer| layer.iter().find_map(|slot| *slot))
+            .expect("fixture should have one tile handle");
+
+        let original = data
+            .tile_by_handle(handle)
+            .expect("tile id should exist for handle");
+        assert!(data.update_tile_gid_by_handle(handle, original));
+        assert!(data.move_tile_by_handle(handle, 320.0, 96.0));
+        assert!(data.move_tile_by_handle(handle, 320.0, 96.0));
+
+        let runtime = data
+            .tile_runtime_by_handle(handle)
+            .expect("runtime should still exist");
+        assert_eq!(runtime.x, 320.0);
+        assert_eq!(runtime.y, 96.0);
+
+        assert!(data.set_tile_visible_by_handle(handle, false));
+        assert!(
+            !data
+                .tile_runtime_by_handle(handle)
+                .expect("runtime should exist")
+                .visible
+        );
+        assert!(data.set_tile_visible_by_handle(handle, true));
+
+        assert!(data.set_tile_alive_by_handle(handle, false));
+        assert!(data.derived_index.tile_rec(handle).is_none());
+        assert!(data.set_tile_alive_by_handle(handle, true));
+        assert!(data.derived_index.tile_rec(handle).is_some());
+
+        assert!(data.remove_tile_by_handle(handle));
+        assert!(!data.remove_tile_by_handle(handle));
+        assert!(data.tile_by_handle(handle).is_none());
+        assert!(data.tile_runtime_by_handle(handle).is_none());
+        assert!(data.derived_index.tile_rec(handle).is_none());
+    }
+
+    #[test]
     fn draw_sequence_respects_runtime_visible_and_alive_flags() {
         let mut map = Map::__new_for_stamp_overflow_test(1);
         let handle = map.data.object_state.object_handles_by_layer[0][0].expect("test object handle");

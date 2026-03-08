@@ -197,6 +197,13 @@ impl Map {
                     }
                     seen[handle_idx] = stamp;
 
+                    let Some(runtime) = self.data.tile_runtime_by_handle(rec.handle) else {
+                        continue;
+                    };
+                    if !runtime.alive || !runtime.visible {
+                        continue;
+                    }
+
                     let (ts, local) = match Self::tileset_for_gid_from(rec.id, gid_lut, tilesets) {
                         Some(x) => x,
                         None => continue,
