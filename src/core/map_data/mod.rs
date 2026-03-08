@@ -2,14 +2,10 @@
 //!
 //! This module owns canonical runtime map content and derived query/index sync helpers.
 
-use crate::ir_map::*;
-use crate::loader::json_loader::*;
-use crate::spatial::{world_to_chunk, GlobalIndex, LayerIdx, ObjectHandle, TileId, CHUNK_SIZE};
-use crate::MapError;
+use crate::ir_map::{IrMap, IrObject, Properties};
+use crate::spatial::{GlobalIndex, LayerIdx, ObjectHandle};
 use macroquad::prelude::*;
-use serde_json::{json, Value as JsonValue};
-use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::collections::HashMap;
 
 mod load;
 mod object;
@@ -102,7 +98,7 @@ pub(crate) use shared::layer_plan::{build_draw_order_and_kind, LayerKindInfo};
 ///
 /// Canonical boundary:
 /// - Canonical mutable runtime truth is stored in layer/object/tile metadata fields.
-/// - `index` is derived query/cache state synchronized from canonical content.
+/// - `derived_index` is query/cache state synchronized from canonical content.
 pub struct MapData {
     pub(crate) source_ir: IrMap,
     pub(crate) derived_index: GlobalIndex,

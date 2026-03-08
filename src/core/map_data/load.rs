@@ -1,4 +1,8 @@
-use super::*;
+use super::{build_draw_order_and_kind, object, tile, LayerPlan, MapData};
+use crate::ir_map::IrMap;
+use crate::loader::json_loader::decode_map_file_to_ir;
+use crate::spatial::GlobalIndex;
+use crate::MapError;
 
 impl MapData {
     /// Loads runtime/query map data without binding render textures.

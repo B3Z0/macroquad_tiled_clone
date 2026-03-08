@@ -1,4 +1,10 @@
-use super::*;
+use super::{LayerId, LayerKindInfo, MapData, ObjectLayer, ObjectRuntimeState};
+use crate::ir_map::{
+    IrLayer, IrLayerKind, IrObject, IrObjectShape, IrTileset, Properties, PropertyValue,
+};
+use crate::MapError;
+use serde_json::{json, Value as JsonValue};
+use std::path::Path;
 
 impl MapData {
     /// Saves canonical runtime state to a Tiled JSON map file.

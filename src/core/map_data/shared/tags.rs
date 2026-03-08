@@ -1,4 +1,4 @@
-use super::super::*;
+use crate::ir_map::IrObject;
 
 pub(crate) fn object_has_tag(obj: &IrObject, tag: &str) -> bool {
     if let Some(v) = obj.properties.get_string("tag") {

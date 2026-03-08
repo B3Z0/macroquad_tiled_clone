@@ -1,4 +1,7 @@
-use super::super::*;
+use super::super::{MapData, ObjectRuntimeState};
+use crate::ir_map::IrObject;
+use crate::spatial::{LayerIdx, ObjectHandle};
+use macroquad::prelude::Vec2;
 
 impl MapData {
     pub(crate) fn set_object_visible_by_handle(

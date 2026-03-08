@@ -1,5 +1,8 @@
 use super::super::shared::geometry::object_chunk_span_runtime;
-use super::super::*;
+use super::super::{MapData, ObjectRuntimeState};
+use crate::spatial::{LayerIdx, ObjectHandle, CHUNK_SIZE};
+use macroquad::prelude::{vec2, Vec2};
+use std::collections::HashSet;
 
 impl MapData {
     pub(super) fn object_placements_for_runtime(

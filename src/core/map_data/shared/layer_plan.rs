@@ -1,4 +1,6 @@
-use super::super::*;
+use crate::core::map_data::LayerId;
+use crate::ir_map::{IrLayer, IrLayerKind};
+use std::collections::HashMap;
 
 #[derive(Clone, Copy)]
 pub(crate) enum LayerKindInfo {

@@ -1,5 +1,9 @@
-use super::super::*;
+use super::super::{LayerId, LayerKindInfo, TileLayerDrawInfo, TileState, TilesetRuntimeInfo};
 use super::{draw::tile_draw_origin, index_sync::tile_chunk_span};
+use crate::ir_map::{IrLayer, IrLayerKind, IrMap, IrTileset};
+use crate::spatial::{GlobalIndex, LayerIdx, TileId};
+use macroquad::prelude::{vec2, Vec2};
+use std::collections::HashMap;
 
 fn tileset_for_gid_from<'a>(
     gid: TileId,

@@ -1,4 +1,7 @@
-use super::super::*;
+use crate::core::map_data::ObjectRuntimeState;
+use crate::ir_map::{IrObject, IrObjectShape};
+use crate::spatial::world_to_chunk;
+use macroquad::prelude::{vec2, Vec2};
 
 #[cfg(test)]
 fn object_aabb_world(obj: &IrObject, layer_offset: Vec2) -> (Vec2, Vec2) {

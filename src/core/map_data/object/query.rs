@@ -1,5 +1,8 @@
 use super::super::shared::tags::object_has_tag;
-use super::super::*;
+use super::super::{MapData, ObjectLayer, ObjectQueryFilter, ObjectRuntimeState};
+use crate::ir_map::IrObject;
+use crate::spatial::ObjectHandle;
+use macroquad::prelude::Vec2;
 
 impl MapData {
     /// Returns parsed object layers for inspection/querying.

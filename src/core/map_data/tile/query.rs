@@ -1,4 +1,6 @@
-use super::super::*;
+use super::super::MapData;
+use crate::spatial::CHUNK_SIZE;
+use macroquad::prelude::{vec2, Vec2};
 
 impl MapData {
     pub(crate) fn visible_coords_for_draw(

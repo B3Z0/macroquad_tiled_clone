@@ -1,5 +1,9 @@
 use super::super::shared::geometry::object_chunk_span_runtime;
-use super::super::*;
+use super::super::{LayerId, LayerKindInfo, ObjectLayer, ObjectRuntimeState, ObjectState};
+use crate::ir_map::{IrLayer, IrLayerKind};
+use crate::spatial::{GlobalIndex, LayerIdx, CHUNK_SIZE};
+use macroquad::prelude::vec2;
+use std::collections::HashMap;
 
 pub(crate) fn build_object_state_from_layers(
     layers: &[IrLayer],
