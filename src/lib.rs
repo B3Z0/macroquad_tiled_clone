@@ -17,4 +17,6 @@ mod spatial;
 
 pub use error::MapError;
 pub use ir_map::{IrObject, IrObjectShape, Properties, PropertyValue};
-pub use map::{LayerId, Map, MapData, ObjectLayer};
+pub use map::{
+    LayerId, Map, MapData, ObjectHandle, ObjectLayer, ObjectQueryFilter, ObjectRuntimeState,
+};

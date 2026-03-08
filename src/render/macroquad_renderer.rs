@@ -251,7 +251,7 @@ impl Map {
         stamp: u32,
     ) {
         self.render_state.sync_with_data(&self.data);
-        let Some(layer) = self.data.object_layers.get_mut(layer_idx) else {
+        let Some(layer) = self.data.object_layers.get(layer_idx) else {
             return;
         };
         let Some(seen_debug) = self.render_state.seen_objects_debug.get_mut(layer_idx) else {
@@ -275,9 +275,14 @@ impl Map {
             |cc, layer_bucket| {
                 let records = &layer_bucket.objects;
                 for rec in records {
-                    let object_idx = rec.handle.0 as usize;
-                    if object_idx >= layer.objects.len() {
+                    let Some((handle_layer_idx, object_idx)) =
+                        self.data.object_location(rec.handle)
+                    else {
                         debug_assert!(false, "ObjectHandle out of bounds for debug draw");
+                        continue;
+                    };
+                    if handle_layer_idx != layer_idx || object_idx >= layer.objects.len() {
+                        debug_assert!(false, "ObjectHandle layer mismatch for debug draw");
                         continue;
                     }
                     debug_assert!(object_idx < seen_debug.len());
@@ -289,7 +294,16 @@ impl Map {
                     let Some(obj) = layer.objects.get(object_idx) else {
                         continue;
                     };
-                    if !obj.visible {
+                    let Some(runtime) = self
+                        .data
+                        .object_runtime_by_layer
+                        .get(layer_idx)
+                        .and_then(|v| v.get(object_idx))
+                        .and_then(|r| r.as_ref())
+                    else {
+                        continue;
+                    };
+                    if !runtime.alive || !runtime.visible {
                         continue;
                     }
 
@@ -303,8 +317,8 @@ impl Map {
                             draw_rectangle_lines(
                                 origin.x,
                                 origin.y,
-                                obj.width.max(2.0),
-                                obj.height.max(2.0),
+                                runtime.width.max(2.0),
+                                runtime.height.max(2.0),
                                 2.0,
                                 rect_color,
                             );
@@ -332,9 +346,9 @@ impl Map {
                         IrObjectShape::Tile { .. } => {
                             draw_rectangle_lines(
                                 origin.x,
-                                origin.y - obj.height,
-                                obj.width.max(16.0),
-                                obj.height.max(16.0),
+                                origin.y - runtime.height,
+                                runtime.width.max(16.0),
+                                runtime.height.max(16.0),
                                 2.0,
                                 tile_color,
                             );
@@ -354,7 +368,7 @@ impl Map {
         self.render_state.sync_with_data(&self.data);
         let gid_lut = &self.data.gid_lut;
         let tilesets = &self.assets.tilesets;
-        let Some(layer) = self.data.object_layers.get_mut(layer_idx) else {
+        let Some(layer) = self.data.object_layers.get(layer_idx) else {
             return;
         };
         let Some(seen_tiles) = self.render_state.seen_objects_tiles.get_mut(layer_idx) else {
@@ -373,9 +387,14 @@ impl Map {
             |cc, layer_bucket| {
                 let records = &layer_bucket.objects;
                 for rec in records {
-                    let object_idx = rec.handle.0 as usize;
-                    if object_idx >= layer.objects.len() {
+                    let Some((handle_layer_idx, object_idx)) =
+                        self.data.object_location(rec.handle)
+                    else {
                         debug_assert!(false, "ObjectHandle out of bounds for tile draw");
+                        continue;
+                    };
+                    if handle_layer_idx != layer_idx || object_idx >= layer.objects.len() {
+                        debug_assert!(false, "ObjectHandle layer mismatch for tile draw");
                         continue;
                     }
                     debug_assert!(object_idx < seen_tiles.len());
@@ -387,7 +406,16 @@ impl Map {
                     let Some(obj) = layer.objects.get(object_idx) else {
                         continue;
                     };
-                    if !obj.visible {
+                    let Some(runtime) = self
+                        .data
+                        .object_runtime_by_layer
+                        .get(layer_idx)
+                        .and_then(|v| v.get(object_idx))
+                        .and_then(|r| r.as_ref())
+                    else {
+                        continue;
+                    };
+                    if !runtime.alive || !runtime.visible {
                         continue;
                     }
 
@@ -410,13 +438,13 @@ impl Map {
                     let sx = ts.margin + col * (ts.tile_w + ts.spacing);
                     let sy = ts.margin + row * (ts.tile_h + ts.spacing);
 
-                    let w = if obj.width > 0.0 {
-                        obj.width
+                    let w = if runtime.width > 0.0 {
+                        runtime.width
                     } else {
                         ts.tile_w as f32
                     };
-                    let h = if obj.height > 0.0 {
-                        obj.height
+                    let h = if runtime.height > 0.0 {
+                        runtime.height
                     } else {
                         ts.tile_h as f32
                     };

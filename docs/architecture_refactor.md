@@ -8,10 +8,10 @@ Define hard ownership boundaries so map runtime/query logic and macroquad render
 
 ## Target Components
 
-### 1) `MapData` (runtime/query only)
-Owns map content and spatial/query state.
+### 1) `MapData` (canonical mutable runtime state)
+Owns canonical gameplay/runtime truth.
 - Layer data, objects, properties, draw order metadata
-- Spatial index and culling coordinate queries
+- Query/index data and culling coordinate queries derived from canonical content
 - GID lookup metadata needed for runtime tile identity
 
 Must not own textures or perform draw calls.
@@ -46,11 +46,14 @@ Public compatibility layer preserving current external API.
 - Keeps stable call sites while internals are decoupled
 
 ## Ownership Rules
-1. Querying visibility/chunks belongs to `MapData`.
-2. Texture loading/storage belongs to `MacroquadRenderAssets`.
-3. Stamp lifecycle and dedupe buffers belong to `RenderState`.
-4. Draw-call orchestration belongs to `MacroquadMapRenderer`.
-5. `Map` facade contains no business logic long-term; only orchestration/delegation.
+1. Canonical runtime truth belongs to `MapData` only.
+2. Querying visibility/chunks belongs to `MapData`.
+3. `GlobalIndex` is derived/cache state and not canonical truth.
+4. Texture loading/storage belongs to `MacroquadRenderAssets`.
+5. Stamp lifecycle and dedupe buffers belong to `RenderState`.
+6. Draw-call orchestration belongs to `MacroquadMapRenderer`.
+7. `Map` facade contains no business logic long-term; only orchestration/delegation.
+8. Canonical->index synchronization uses eager incremental updates on every mutation.
 
 ## Mapping: Current `Map` Fields -> Target Owner
 

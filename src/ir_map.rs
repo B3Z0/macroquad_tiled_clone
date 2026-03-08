@@ -74,6 +74,11 @@ impl Properties {
             _ => None,
         }
     }
+
+    /// Iterates all properties as key/value pairs.
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &PropertyValue)> {
+        self.0.iter()
+    }
 }
 
 /// Parsed Tiled object shape kind.
@@ -152,6 +157,8 @@ pub enum IrTileset {
     Atlas {
         /// First global tile id assigned to this tileset.
         first_gid: u32,
+        /// External tileset source path (`.json`) relative to map file.
+        source: String,
         /// Tileset image path.
         image: String,
         /// Tile width (pixels).

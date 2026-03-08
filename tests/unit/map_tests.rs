@@ -2,6 +2,7 @@
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn fixture_path(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -15,6 +16,14 @@ mod tests {
         let path_str = path.to_str().expect("fixture path must be utf-8");
         let (ir, _) = decode_map_file_to_ir(path_str).expect("fixture should decode");
         ir
+    }
+
+    fn temp_export_path(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock went backwards")
+            .as_nanos();
+        fixture_path(&format!("{prefix}_{nanos}.json"))
     }
 
     #[test]
@@ -114,6 +123,13 @@ mod tests {
         }
 
         let data = MapData {
+            source_ir: IrMap {
+                tile_w: 16,
+                tile_h: 16,
+                properties: Properties::default(),
+                tilesets: vec![],
+                layers: vec![],
+            },
             index: GlobalIndex::new(),
             tilesets: vec![],
             object_layers: vec![ObjectLayer {
@@ -126,6 +142,38 @@ mod tests {
                 objects: vec![make_object(1), make_object(2), make_object(3)],
                 bucket_layer: 0,
             }],
+            object_loc_by_handle: vec![Some((0, 0)), Some((0, 1)), Some((0, 2))],
+            object_handles_by_layer: vec![vec![
+                Some(crate::spatial::ObjectHandle(0)),
+                Some(crate::spatial::ObjectHandle(1)),
+                Some(crate::spatial::ObjectHandle(2)),
+            ]],
+            object_runtime_by_layer: vec![vec![
+                Some(ObjectRuntimeState {
+                    alive: true,
+                    visible: true,
+                    x: 0.0,
+                    y: 0.0,
+                    width: 16.0,
+                    height: 16.0,
+                }),
+                Some(ObjectRuntimeState {
+                    alive: true,
+                    visible: true,
+                    x: 0.0,
+                    y: 0.0,
+                    width: 16.0,
+                    height: 16.0,
+                }),
+                Some(ObjectRuntimeState {
+                    alive: true,
+                    visible: true,
+                    x: 0.0,
+                    y: 0.0,
+                    width: 16.0,
+                    height: 16.0,
+                }),
+            ]],
             gid_lut: vec![],
             tile_layers: vec![],
             draw_order: vec![],
@@ -231,7 +279,7 @@ mod tests {
                     );
                 }
                 LayerKindInfo::Objects(object_layer_idx) => {
-                    let Some(layer) = map.data.object_layers.get_mut(object_layer_idx) else {
+                    let Some(layer) = map.data.object_layers.get(object_layer_idx) else {
                         continue;
                     };
                     let Some(seen_layer) = map
@@ -252,8 +300,14 @@ mod tests {
                         bucket_layer,
                         |cc, bucket| {
                             for rec in &bucket.objects {
-                                let object_idx = rec.handle.0 as usize;
-                                if object_idx >= layer.objects.len() {
+                                let Some((handle_layer_idx, object_idx)) =
+                                    map.data.object_location(rec.handle)
+                                else {
+                                    continue;
+                                };
+                                if handle_layer_idx != object_layer_idx
+                                    || object_idx >= layer.objects.len()
+                                {
                                     continue;
                                 }
                                 if seen_layer[object_idx] == stamp {
@@ -264,7 +318,16 @@ mod tests {
                                 let Some(obj) = layer.objects.get(object_idx) else {
                                     continue;
                                 };
-                                if !obj.visible {
+                                let Some(runtime) = map
+                                    .data
+                                    .object_runtime_by_layer
+                                    .get(object_layer_idx)
+                                    .and_then(|v| v.get(object_idx))
+                                    .and_then(|s| s.as_ref())
+                                else {
+                                    continue;
+                                };
+                                if !runtime.alive || !runtime.visible {
                                     continue;
                                 }
                                 if !matches!(obj.shape, IrObjectShape::Tile { .. }) {
@@ -296,9 +359,19 @@ mod tests {
 
         Map {
             data: MapData {
+                source_ir: IrMap {
+                    tile_w: 16,
+                    tile_h: 16,
+                    properties: Properties::default(),
+                    tilesets: vec![],
+                    layers: vec![],
+                },
                 index,
                 tilesets: vec![],
                 object_layers: vec![],
+                object_loc_by_handle: vec![],
+                object_handles_by_layer: vec![],
+                object_runtime_by_layer: vec![],
                 gid_lut: vec![],
                 tile_layers: vec![TileLayerDrawInfo {
                     layer_id: 0,
@@ -323,6 +396,7 @@ mod tests {
         index.add_tile(TileId(1), 0, vec2(10.0, 10.0));
         index.add_tile(TileId(1), 0, vec2((CHUNK_SIZE + 10) as f32, 10.0));
         index.add_tile(TileId(1), 2, vec2(20.0, (CHUNK_SIZE + 10) as f32));
+        let object_handle = index.alloc_object_handle();
 
         let objects = vec![IrObject {
             id: 77,
@@ -343,7 +417,7 @@ mod tests {
             1,
             crate::spatial::ChunkCoord { x: 0, y: 0 },
             crate::spatial::ObjectRec {
-                handle: crate::spatial::ObjectHandle(0),
+                handle: object_handle,
                 rel_pos: vec2((CHUNK_SIZE - 8) as f32, 32.0),
             },
         );
@@ -351,13 +425,20 @@ mod tests {
             1,
             crate::spatial::ChunkCoord { x: 1, y: 0 },
             crate::spatial::ObjectRec {
-                handle: crate::spatial::ObjectHandle(0),
+                handle: object_handle,
                 rel_pos: vec2(0.0, 32.0),
             },
         );
 
         let mut map = Map {
             data: MapData {
+                source_ir: IrMap {
+                    tile_w: 16,
+                    tile_h: 16,
+                    properties: Properties::default(),
+                    tilesets: vec![],
+                    layers: vec![],
+                },
                 index,
                 tilesets: vec![],
                 object_layers: vec![ObjectLayer {
@@ -370,6 +451,20 @@ mod tests {
                     objects,
                     bucket_layer: 1,
                 }],
+                object_loc_by_handle: {
+                    let mut v = vec![None; (object_handle.0 as usize) + 1];
+                    v[object_handle.0 as usize] = Some((0, 0));
+                    v
+                },
+                object_handles_by_layer: vec![vec![Some(object_handle)]],
+                object_runtime_by_layer: vec![vec![Some(ObjectRuntimeState {
+                    alive: true,
+                    visible: true,
+                    x: (CHUNK_SIZE - 8) as f32,
+                    y: 32.0,
+                    width: 16.0,
+                    height: 16.0,
+                })]],
                 gid_lut: vec![],
                 tile_layers: vec![
                     TileLayerDrawInfo {
@@ -471,9 +566,19 @@ mod tests {
 
         let mut map = Map {
             data: MapData {
+                source_ir: IrMap {
+                    tile_w: 16,
+                    tile_h: 16,
+                    properties: Properties::default(),
+                    tilesets: vec![],
+                    layers: vec![],
+                },
                 index,
                 tilesets: vec![],
                 object_layers: vec![],
+                object_loc_by_handle: vec![],
+                object_handles_by_layer: vec![],
+                object_runtime_by_layer: vec![],
                 gid_lut: vec![],
                 tile_layers: vec![TileLayerDrawInfo {
                     layer_id: 0,
@@ -734,6 +839,633 @@ mod tests {
         assert_eq!(coords.len(), 1);
         assert_eq!(coords[0].x, 0);
         assert_eq!(coords[0].y, 0);
+    }
+
+    #[test]
+    fn handle_object_api_rejects_invalid_handles_safely() {
+        let path = fixture_path("external_props_map.json");
+        let path_str = path.to_str().expect("fixture path must be utf-8");
+        let mut data = MapData::load(path_str).expect("map data should load headlessly");
+
+        let invalid = crate::spatial::ObjectHandle(999_999);
+        assert!(data.object_by_handle(invalid).is_none());
+        assert!(!data.update_object_bounds_position_by_handle(
+            invalid, 1.0, 2.0, 3.0, 4.0
+        ));
+        assert!(!data.set_object_visible_by_handle(invalid, false));
+        assert!(!data.set_object_alive_by_handle(invalid, false));
+        assert!(!data.remove_object_by_handle(invalid));
+    }
+
+    #[test]
+    fn repeated_object_move_and_remove_by_handle_is_deterministic() {
+        let path = fixture_path("external_props_map.json");
+        let path_str = path.to_str().expect("fixture path must be utf-8");
+        let mut data = MapData::load(path_str).expect("map data should load headlessly");
+
+        let handle = data.object_handles_by_layer[0][0].expect("fixture should have one object");
+        assert!(data.object_by_handle(handle).is_some());
+
+        assert!(data.update_object_bounds_position_by_handle(
+            handle, 520.0, 40.0, 32.0, 64.0
+        ));
+        assert!(data.update_object_bounds_position_by_handle(
+            handle, 520.0, 40.0, 32.0, 64.0
+        ));
+
+        let runtime = data
+            .object_runtime_by_handle(handle)
+            .expect("runtime should still be present");
+        assert_eq!(runtime.x, 520.0);
+        assert_eq!(runtime.y, 40.0);
+        assert_eq!(runtime.width, 32.0);
+        assert_eq!(runtime.height, 64.0);
+
+        let memberships = data
+            .index
+            .object_memberships(handle)
+            .expect("memberships should exist after move");
+        assert!(!memberships.is_empty());
+
+        assert!(data.set_object_visible_by_handle(handle, false));
+        assert_eq!(
+            data.object_runtime_by_handle(handle)
+                .expect("runtime should exist")
+                .visible,
+            false
+        );
+        assert!(data.set_object_alive_by_handle(handle, false));
+        assert!(data.index.object_memberships(handle).is_none());
+        assert!(data.set_object_alive_by_handle(handle, true));
+        assert!(data.index.object_memberships(handle).is_some());
+
+        assert!(data.remove_object_by_handle(handle));
+        assert!(!data.remove_object_by_handle(handle));
+        assert!(data.object_by_handle(handle).is_none());
+        assert!(data.object_runtime_by_handle(handle).is_none());
+        assert!(data.index.object_memberships(handle).is_none());
+    }
+
+    #[test]
+    fn draw_sequence_respects_runtime_visible_and_alive_flags() {
+        let mut map = Map::__new_for_stamp_overflow_test(1);
+        let handle = map.data.object_handles_by_layer[0][0].expect("test object handle");
+
+        map.set_object_visible_by_handle(handle, false);
+        let seq_hidden = collect_draw_sequence_for_test(&mut map, Vec2::ZERO, vec2(64.0, 64.0));
+        assert!(seq_hidden.is_empty());
+
+        map.set_object_visible_by_handle(handle, true);
+        map.set_object_alive_by_handle(handle, false);
+        let seq_dead = collect_draw_sequence_for_test(&mut map, Vec2::ZERO, vec2(64.0, 64.0));
+        assert!(seq_dead.is_empty());
+
+        map.set_object_alive_by_handle(handle, true);
+        let seq_live = collect_draw_sequence_for_test(&mut map, Vec2::ZERO, vec2(64.0, 64.0));
+        assert_eq!(seq_live.len(), 1);
+        assert_eq!(seq_live[0].0, 'O');
+    }
+
+    fn run_random_mutation_sequence(seed: u64) -> Vec<Vec<u32>> {
+        fn next_u32(state: &mut u64) -> u32 {
+            *state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            (*state >> 32) as u32
+        }
+
+        let mut rng = seed;
+        let mut map = Map::__new_for_stamp_overflow_test(0);
+        let mut next_id = 1_000u32;
+        let mut trace = Vec::new();
+
+        let mut coords = Vec::new();
+        for y in -8..=8 {
+            for x in -8..=8 {
+                coords.push(crate::spatial::ChunkCoord { x, y });
+            }
+        }
+
+        for _ in 0..180 {
+            let roll = next_u32(&mut rng) % 5;
+            match roll {
+                0 | 1 => {
+                    let x = (next_u32(&mut rng) % 1800) as f32 - 900.0;
+                    let y = (next_u32(&mut rng) % 1800) as f32 - 900.0;
+                    let w = ((next_u32(&mut rng) % 96) + 8) as f32;
+                    let h = ((next_u32(&mut rng) % 96) + 8) as f32;
+                    let obj = IrObject {
+                        id: next_id,
+                        name: format!("r{}", next_id),
+                        class_name: String::new(),
+                        x,
+                        y,
+                        width: w,
+                        height: h,
+                        rotation: 0.0,
+                        visible: true,
+                        shape: IrObjectShape::Rectangle,
+                        properties: Properties::default(),
+                    };
+                    next_id += 1;
+                    let _ = map.spawn_object_in_layer(0, obj);
+                }
+                2 => {
+                    let Some(layer_handles) = map.data.object_handles_by_layer.first() else {
+                        continue;
+                    };
+                    let live: Vec<_> = layer_handles.iter().flatten().copied().collect();
+                    if live.is_empty() {
+                        continue;
+                    }
+                    let handle = live[(next_u32(&mut rng) as usize) % live.len()];
+                    let x = (next_u32(&mut rng) % 1800) as f32 - 900.0;
+                    let y = (next_u32(&mut rng) % 1800) as f32 - 900.0;
+                    let w = ((next_u32(&mut rng) % 96) + 8) as f32;
+                    let h = ((next_u32(&mut rng) % 96) + 8) as f32;
+                    let _ = map.update_object_bounds_position_by_handle(handle, x, y, w, h);
+                }
+                3 => {
+                    let Some(layer_handles) = map.data.object_handles_by_layer.first() else {
+                        continue;
+                    };
+                    let live: Vec<_> = layer_handles.iter().flatten().copied().collect();
+                    if live.is_empty() {
+                        continue;
+                    }
+                    let handle = live[(next_u32(&mut rng) as usize) % live.len()];
+                    let alive = map
+                        .object_runtime_by_handle(handle)
+                        .map(|s| s.alive)
+                        .unwrap_or(false);
+                    let _ = map.set_object_alive_by_handle(handle, !alive);
+                }
+                _ => {
+                    let Some(layer_handles) = map.data.object_handles_by_layer.first() else {
+                        continue;
+                    };
+                    let live: Vec<_> = layer_handles.iter().flatten().copied().collect();
+                    if live.is_empty() {
+                        continue;
+                    }
+                    let handle = live[(next_u32(&mut rng) as usize) % live.len()];
+                    let _ = map.remove_object_by_handle(handle);
+                }
+            }
+
+            let got = map.query_object_handles_in_coords(0, &coords);
+            let got_ids: Vec<u32> = got.iter().map(|h| h.0).collect();
+            let uniq: std::collections::HashSet<u32> = got_ids.iter().copied().collect();
+            assert_eq!(uniq.len(), got_ids.len(), "query returned duplicate handles");
+
+            let mut expected = Vec::new();
+            if let Some(layer) = map.data.object_layers.first() {
+                for (idx, slot) in map.data.object_handles_by_layer[0].iter().enumerate() {
+                    let Some(handle) = slot else {
+                        continue;
+                    };
+                    let Some(runtime) = map
+                        .data
+                        .object_runtime_by_layer
+                        .get(0)
+                        .and_then(|v| v.get(idx))
+                        .and_then(|s| s.as_ref())
+                    else {
+                        continue;
+                    };
+                    if !runtime.alive {
+                        continue;
+                    }
+                    let Some(obj) = layer.objects.get(idx) else {
+                        continue;
+                    };
+                    let (min_c, max_c) = crate::core::object_chunk_span_runtime(obj, *runtime, layer.offset);
+                    let mut overlaps = false;
+                    for cc in &coords {
+                        if cc.x >= min_c.x && cc.x <= max_c.x && cc.y >= min_c.y && cc.y <= max_c.y {
+                            overlaps = true;
+                            break;
+                        }
+                    }
+                    if overlaps {
+                        expected.push(handle.0);
+                    }
+                }
+            }
+            expected.sort_unstable();
+            assert_eq!(got_ids, expected, "query drifted from canonical runtime state");
+            trace.push(got_ids);
+        }
+
+        trace
+    }
+
+    #[test]
+    fn randomized_mutation_sequence_keeps_index_consistent() {
+        let _ = run_random_mutation_sequence(0xC0FFEE_u64);
+    }
+
+    #[test]
+    fn randomized_mutation_sequence_is_deterministic() {
+        let a = run_random_mutation_sequence(0xDEADBEEF_u64);
+        let b = run_random_mutation_sequence(0xDEADBEEF_u64);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn visible_zombies_query_by_tag_returns_expected_ids() {
+        let mut map = Map::__new_for_stamp_overflow_test(0);
+
+        let mut zombie_props = Properties::new();
+        zombie_props.insert(
+            "tags".to_string(),
+            PropertyValue::String("enemy,zombie".to_string()),
+        );
+        let zombie_a = IrObject {
+            id: 2001,
+            name: "zombie_a".to_string(),
+            class_name: "npc".to_string(),
+            x: 32.0,
+            y: 32.0,
+            width: 16.0,
+            height: 16.0,
+            rotation: 0.0,
+            visible: true,
+            shape: IrObjectShape::Rectangle,
+            properties: zombie_props.clone(),
+        };
+        let zombie_b = IrObject {
+            id: 2002,
+            name: "zombie_b".to_string(),
+            class_name: "npc".to_string(),
+            x: 96.0,
+            y: 96.0,
+            width: 16.0,
+            height: 16.0,
+            rotation: 0.0,
+            visible: true,
+            shape: IrObjectShape::Rectangle,
+            properties: zombie_props,
+        };
+        let civilian = IrObject {
+            id: 2003,
+            name: "civilian".to_string(),
+            class_name: "npc".to_string(),
+            x: 48.0,
+            y: 48.0,
+            width: 16.0,
+            height: 16.0,
+            rotation: 0.0,
+            visible: true,
+            shape: IrObjectShape::Rectangle,
+            properties: Properties::default(),
+        };
+
+        let _ = map.spawn_object_in_layer(0, zombie_a);
+        let _ = map.spawn_object_in_layer(0, zombie_b);
+        let _ = map.spawn_object_in_layer(0, civilian);
+
+        let ids = map.query_visible_object_ids(
+            0,
+            vec2(0.0, 0.0),
+            vec2(128.0, 128.0),
+            ObjectQueryFilter {
+                kind: None,
+                tag: Some("zombie"),
+            },
+        );
+        assert_eq!(ids, vec![2001, 2002]);
+    }
+
+    #[test]
+    fn despawned_entries_disappear_from_filtered_visible_query() {
+        let mut map = Map::__new_for_stamp_overflow_test(0);
+        let mut props = Properties::new();
+        props.insert(
+            "tag".to_string(),
+            PropertyValue::String("zombie".to_string()),
+        );
+        let h = map
+            .spawn_object_in_layer(
+                0,
+                IrObject {
+                    id: 2101,
+                    name: "z".to_string(),
+                    class_name: "npc".to_string(),
+                    x: 40.0,
+                    y: 40.0,
+                    width: 16.0,
+                    height: 16.0,
+                    rotation: 0.0,
+                    visible: true,
+                    shape: IrObjectShape::Rectangle,
+                    properties: props,
+                },
+            )
+            .expect("spawn should succeed");
+
+        let before = map.query_visible_object_ids(
+            0,
+            vec2(0.0, 0.0),
+            vec2(128.0, 128.0),
+            ObjectQueryFilter {
+                kind: None,
+                tag: Some("zombie"),
+            },
+        );
+        assert_eq!(before, vec![2101]);
+
+        assert!(map.set_object_alive_by_handle(h, false));
+        let after = map.query_visible_object_ids(
+            0,
+            vec2(0.0, 0.0),
+            vec2(128.0, 128.0),
+            ObjectQueryFilter {
+                kind: None,
+                tag: Some("zombie"),
+            },
+        );
+        assert!(after.is_empty());
+    }
+
+    #[test]
+    fn moved_entries_relocate_between_query_windows() {
+        let mut map = Map::__new_for_stamp_overflow_test(0);
+        let h = map
+            .spawn_object_in_layer(
+                0,
+                IrObject {
+                    id: 2201,
+                    name: "roamer".to_string(),
+                    class_name: "zombie".to_string(),
+                    x: 20.0,
+                    y: 20.0,
+                    width: 16.0,
+                    height: 16.0,
+                    rotation: 0.0,
+                    visible: true,
+                    shape: IrObjectShape::Rectangle,
+                    properties: Properties::default(),
+                },
+            )
+            .expect("spawn should succeed");
+
+        let left = map.query_visible_object_ids(
+            0,
+            vec2(0.0, 0.0),
+            vec2(64.0, 64.0),
+            ObjectQueryFilter {
+                kind: Some("zombie"),
+                tag: None,
+            },
+        );
+        let right = map.query_visible_object_ids(
+            0,
+            vec2(256.0, 0.0),
+            vec2(320.0, 64.0),
+            ObjectQueryFilter {
+                kind: Some("zombie"),
+                tag: None,
+            },
+        );
+        assert_eq!(left, vec![2201]);
+        assert!(right.is_empty());
+
+        assert!(map.update_object_bounds_position_by_handle(
+            h, 272.0, 20.0, 16.0, 16.0
+        ));
+        let left_after = map.query_visible_object_ids(
+            0,
+            vec2(0.0, 0.0),
+            vec2(64.0, 64.0),
+            ObjectQueryFilter {
+                kind: Some("zombie"),
+                tag: None,
+            },
+        );
+        let right_after = map.query_visible_object_ids(
+            0,
+            vec2(256.0, 0.0),
+            vec2(320.0, 64.0),
+            ObjectQueryFilter {
+                kind: Some("zombie"),
+                tag: None,
+            },
+        );
+        assert!(left_after.is_empty());
+        assert_eq!(right_after, vec![2201]);
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct PersistedObjectPolicyView {
+        id: u32,
+        name: String,
+        class_name: String,
+        visible: bool,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        rotation: f32,
+    }
+
+    fn persisted_objects_for_policy_test(map: &Map, layer_idx: usize) -> Vec<PersistedObjectPolicyView> {
+        let mut out = Vec::new();
+        let Some(layer) = map.data.object_layers.get(layer_idx) else {
+            return out;
+        };
+        for (i, authored) in layer.objects.iter().enumerate() {
+            let Some(Some(handle)) = map
+                .data
+                .object_handles_by_layer
+                .get(layer_idx)
+                .and_then(|v| v.get(i))
+            else {
+                continue;
+            };
+            let Some(runtime) = map.object_runtime_by_handle(*handle) else {
+                continue;
+            };
+            if !runtime.alive {
+                continue;
+            }
+            out.push(PersistedObjectPolicyView {
+                id: authored.id,
+                name: authored.name.clone(),
+                class_name: authored.class_name.clone(),
+                visible: runtime.visible,
+                x: runtime.x,
+                y: runtime.y,
+                width: runtime.width,
+                height: runtime.height,
+                rotation: authored.rotation,
+            });
+        }
+        out
+    }
+
+    #[test]
+    fn persistence_policy_saves_runtime_geometry_and_visibility() {
+        let mut map = Map::__new_for_stamp_overflow_test(0);
+        let h = map
+            .spawn_object_in_layer(
+                0,
+                IrObject {
+                    id: 3001,
+                    name: "npc".to_string(),
+                    class_name: "zombie".to_string(),
+                    x: 10.0,
+                    y: 20.0,
+                    width: 16.0,
+                    height: 16.0,
+                    rotation: 0.0,
+                    visible: true,
+                    shape: IrObjectShape::Rectangle,
+                    properties: Properties::default(),
+                },
+            )
+            .expect("spawn should succeed");
+
+        assert!(map.update_object_bounds_position_by_handle(h, 111.0, 222.0, 33.0, 44.0));
+        assert!(map.set_object_visible_by_handle(h, false));
+
+        let persisted = persisted_objects_for_policy_test(&map, 0);
+        assert_eq!(persisted.len(), 1);
+        assert_eq!(persisted[0].id, 3001);
+        assert_eq!(persisted[0].visible, false);
+        assert_eq!(persisted[0].x, 111.0);
+        assert_eq!(persisted[0].y, 222.0);
+        assert_eq!(persisted[0].width, 33.0);
+        assert_eq!(persisted[0].height, 44.0);
+    }
+
+    #[test]
+    fn persistence_policy_omits_despawned_objects() {
+        let mut map = Map::__new_for_stamp_overflow_test(0);
+        let h = map
+            .spawn_object_in_layer(
+                0,
+                IrObject {
+                    id: 3002,
+                    name: "gone".to_string(),
+                    class_name: "npc".to_string(),
+                    x: 10.0,
+                    y: 20.0,
+                    width: 16.0,
+                    height: 16.0,
+                    rotation: 0.0,
+                    visible: true,
+                    shape: IrObjectShape::Rectangle,
+                    properties: Properties::default(),
+                },
+            )
+            .expect("spawn should succeed");
+        assert!(map.set_object_alive_by_handle(h, false));
+
+        let persisted = persisted_objects_for_policy_test(&map, 0);
+        assert!(persisted.is_empty());
+    }
+
+    #[test]
+    fn persistence_policy_excludes_render_state_fields() {
+        let mut map = Map::__new_for_stamp_overflow_test(0);
+        let _ = map.spawn_object_in_layer(
+            0,
+            IrObject {
+                id: 3003,
+                name: "stable".to_string(),
+                class_name: "npc".to_string(),
+                x: 1.0,
+                y: 2.0,
+                width: 3.0,
+                height: 4.0,
+                rotation: 0.0,
+                visible: true,
+                shape: IrObjectShape::Rectangle,
+                properties: Properties::default(),
+            },
+        );
+
+        let before = persisted_objects_for_policy_test(&map, 0);
+        map.set_cull_padding(999.0);
+        map.set_debug_draw(true);
+        map.__set_frame_stamp_for_testing(777);
+        let after = persisted_objects_for_policy_test(&map, 0);
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn load_mutate_save_reload_roundtrip_consistency() {
+        let source = fixture_path("external_props_map.json");
+        let src_str = source.to_str().expect("fixture path utf8");
+        let mut data = MapData::load(src_str).expect("source map should load");
+
+        let handle = data.object_handles_by_layer[0][0].expect("object handle exists");
+        assert!(data.update_object_bounds_position_by_handle(
+            handle, 144.0, 55.0, 30.0, 42.0
+        ));
+        assert!(data.set_object_visible_by_handle(handle, false));
+
+        let out = temp_export_path("roundtrip_export");
+        let out_str = out.to_str().expect("export path utf8");
+        data.save_to_json(out_str).expect("export should succeed");
+        let reloaded = MapData::load(out_str).expect("reloaded map should parse");
+
+        let obj = &reloaded.object_layers()[0].objects[0];
+        assert_eq!(obj.id, 7);
+        assert_eq!(obj.x, 144.0);
+        assert_eq!(obj.y, 55.0);
+        assert_eq!(obj.width, 30.0);
+        assert_eq!(obj.height, 42.0);
+        assert!(!obj.visible);
+
+        let _ = std::fs::remove_file(out);
+    }
+
+    #[test]
+    fn export_roundtrip_preserves_id_stable_entity_attributes() {
+        let source = fixture_path("external_props_map.json");
+        let src_str = source.to_str().expect("fixture path utf8");
+        let mut map = Map::__new_for_stamp_overflow_test(0);
+        let mut props = Properties::new();
+        props.insert("tag".to_string(), PropertyValue::String("zombie".to_string()));
+        let _ = map.spawn_object_in_layer(
+            0,
+            IrObject {
+                id: 9001,
+                name: "boss".to_string(),
+                class_name: "zombie".to_string(),
+                x: 200.0,
+                y: 300.0,
+                width: 48.0,
+                height: 64.0,
+                rotation: 0.0,
+                visible: true,
+                shape: IrObjectShape::Rectangle,
+                properties: props,
+            },
+        );
+
+        // Ensure export path also works from regular loaded maps.
+        let _ = MapData::load(src_str).expect("baseline fixture should load");
+
+        let out = temp_export_path("id_stable_export");
+        let out_str = out.to_str().expect("export path utf8");
+        map.save_to_json(out_str).expect("export should succeed");
+        let reloaded = MapData::load(out_str).expect("reloaded map should parse");
+
+        let ids: Vec<u32> = reloaded.object_layers()[0].objects.iter().map(|o| o.id).collect();
+        assert!(ids.contains(&9001));
+        let boss = reloaded
+            .object_layers()[0]
+            .objects
+            .iter()
+            .find(|o| o.id == 9001)
+            .expect("boss object should persist");
+        assert_eq!(boss.class_name, "zombie");
+        assert_eq!(boss.properties.get_string("tag"), Some("zombie"));
+        assert_eq!(boss.width, 48.0);
+        assert_eq!(boss.height, 64.0);
+
+        let _ = std::fs::remove_file(out);
     }
 
     #[test]

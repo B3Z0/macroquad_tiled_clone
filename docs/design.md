@@ -30,11 +30,13 @@ Rule: if manual object draws are used in one frame, use one shared stamp for all
 Current ownership split:
 
 - `src/core/*`
-  - `MapData` runtime/query representation.
+  - `MapData` is the canonical mutable runtime truth model.
+  - `GlobalIndex` inside `MapData` is derived query/index cache, rebuildable from canonical object/tile state.
   - Layer ordering metadata and spatial index construction.
   - Chunk visibility coordinate helpers for view rectangles.
   - Must not import from `crate::render`.
 - `src/render/*`
+  - Renderer is a consumer-only view over canonical state.
   - `MacroquadRenderAssets`: texture/atlas ownership and binding.
   - `RenderState`: frame stamp + dedupe buffers + draw config flags.
   - `macroquad_renderer.rs`: draw pipeline implementation for `Map`.
@@ -44,6 +46,13 @@ Current ownership split:
   - Delegates loading/query/render behavior to core/render modules.
 
 This split exists to keep runtime/query use-cases (headless engine systems) separate from rendering concerns while preserving the current stable `Map` API.
+
+Canonical state boundary rule:
+
+- Exactly one canonical runtime truth model exists: `MapData`.
+- Query/index structures (for example `GlobalIndex`) are derived/runtime-sync data, not authoritative gameplay truth.
+- Rendering never owns gameplay truth; it consumes `MapData` plus render-only state.
+- Sync mode is eager incremental: every canonical object mutation updates index state in the same operation.
 
 ## Engine Integration
 
@@ -97,6 +106,14 @@ The loading path is panic-free and returns typed `MapError` values:
 - Invalid tile/object gid references
 - Unsupported property types
 - Texture load failures
+
+## Persistence Policy
+
+- Canonical save source is `MapData`.
+- Persist canonical authored fields plus runtime-mutated object geometry/visibility.
+- Despawned (`alive = false`) objects are omitted from persisted object arrays.
+- Never persist derived/index/cache (`GlobalIndex`, LUTs) or render state/assets.
+- See `docs/persistence_policy.md` for explicit policy scope.
 
 ## Known Non-Goals (v0.1.0)
 

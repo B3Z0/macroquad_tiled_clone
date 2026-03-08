@@ -23,6 +23,13 @@ The crate is now organized around three responsibilities:
 - Rendering via `draw_texture_ex` with nearest filtering
 - Universal draw API: `map.draw(view_min, view_max)` (tiles + tile-objects)
 - Optional debug outlines via `set_debug_draw(true)`
+- Handle-centric object operations:
+  - `object_by_handle(handle)`
+  - `update_object_bounds_position_by_handle(handle, x, y, w, h)`
+  - `remove_object_by_handle(handle)`
+  - `query_visible_object_handles(layer_idx, view_min, view_max, filter)`
+  - `query_visible_object_ids(layer_idx, view_min, view_max, filter)`
+  - `save_to_json(path)` from canonical runtime state
 
 ## Not Supported
 
@@ -60,6 +67,16 @@ let data = MapData::load("assets2/map.json")?;
 let object_layer_count = data.object_layers().len();
 let object_count = data.objects().count();
 ```
+
+Visible query API (engine-facing):
+
+- `query_visible_object_handles(...)` returns stable handles for O(1) follow-up mutations.
+- `query_visible_object_ids(...)` returns authored Tiled object ids for ID-based logic.
+- Optional filters: `kind` (`class_name`) and `tag`/`tags` object properties.
+- Performance characteristics (MVP):
+  - Chunk selection is proportional to covered chunk count for the view rectangle.
+  - Candidate scan is proportional to visible bucket entries in those chunks.
+  - Result dedupe is handle-based and deterministic (sorted by handle id).
 
 ### Render Path (Macroquad)
 

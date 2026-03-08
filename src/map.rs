@@ -12,16 +12,17 @@ use std::path::Path;
 use crate::core::{build_draw_order_and_kind, TileLayerDrawInfo};
 #[cfg(test)]
 use crate::core::{object_chunk_span, tile_draw_origin};
-pub use crate::core::{LayerId, MapData, ObjectLayer};
+pub use crate::core::{LayerId, MapData, ObjectLayer, ObjectQueryFilter, ObjectRuntimeState};
 #[cfg(test)]
 use crate::render::cull::{query_visible_rect, visible_chunk_coords_rect};
+pub use crate::spatial::ObjectHandle;
 #[cfg(test)]
 use crate::spatial::{world_to_chunk, LayerIdx, TileId, CHUNK_SIZE};
 
 /// Loaded Tiled map with rendering helpers.
 ///
 /// `Map` is the stable facade over three internal components:
-/// - [`MapData`] for runtime/query data.
+/// - [`MapData`] for canonical mutable runtime truth.
 /// - `MacroquadRenderAssets` for Macroquad textures/atlas metadata.
 /// - `RenderState` for frame-local draw state (stamps/culling/debug flags).
 ///
@@ -57,10 +58,18 @@ impl Map {
         Self::from_ir(ir, &base).await
     }
 
+    /// Saves canonical runtime state to a Tiled JSON file.
+    pub fn save_to_json(&self, path: &str) -> Result<(), MapError> {
+        self.data.save_to_json(path)
+    }
+
     #[doc(hidden)]
     pub fn __new_for_stamp_overflow_test(object_count: usize) -> Self {
         let mut index = GlobalIndex::new();
         let mut objects = Vec::with_capacity(object_count);
+        let mut object_loc_by_handle = Vec::with_capacity(object_count);
+        let mut object_handles = Vec::with_capacity(object_count);
+        let mut object_runtime = Vec::with_capacity(object_count);
         for i in 0..object_count {
             objects.push(IrObject {
                 id: i as u32,
@@ -75,11 +84,22 @@ impl Map {
                 shape: IrObjectShape::Tile { gid: 1 },
                 properties: Properties::default(),
             });
+            let handle = index.alloc_object_handle();
+            object_loc_by_handle.push(Some((0, i)));
+            object_handles.push(Some(handle));
+            object_runtime.push(Some(ObjectRuntimeState {
+                alive: true,
+                visible: true,
+                x: 8.0,
+                y: 8.0,
+                width: 16.0,
+                height: 16.0,
+            }));
             index.insert_object(
                 0,
                 crate::spatial::ChunkCoord { x: 0, y: 0 },
                 crate::spatial::ObjectRec {
-                    handle: crate::spatial::ObjectHandle(i as u32),
+                    handle,
                     rel_pos: vec2(0.0, 0.0),
                 },
             );
@@ -95,15 +115,35 @@ impl Map {
             objects,
             bucket_layer: 0,
         };
+        let source_objects = object_layer.objects.clone();
 
         let mut layer_kind_by_id = HashMap::new();
         layer_kind_by_id.insert(0, LayerKindInfo::Objects(0));
 
         Self {
             data: MapData {
+                source_ir: IrMap {
+                    tile_w: 16,
+                    tile_h: 16,
+                    properties: Properties::default(),
+                    tilesets: vec![],
+                    layers: vec![IrLayer {
+                        name: "test".to_string(),
+                        visible: true,
+                        opacity: 1.0,
+                        offset: Vec2::ZERO,
+                        properties: Properties::default(),
+                        kind: IrLayerKind::Objects {
+                            objects: source_objects,
+                        },
+                    }],
+                },
                 index,
                 tilesets: vec![],
                 object_layers: vec![object_layer],
+                object_loc_by_handle,
+                object_handles_by_layer: vec![object_handles],
+                object_runtime_by_layer: vec![object_runtime],
                 gid_lut: vec![],
                 tile_layers: vec![],
                 draw_order: vec![0],
@@ -171,6 +211,106 @@ impl Map {
     /// Iterates all parsed objects across all object layers.
     pub fn objects(&self) -> impl Iterator<Item = &IrObject> {
         self.data.objects()
+    }
+
+    /// Looks up an object by stable object handle.
+    ///
+    /// Returns `None` for invalid or removed handles.
+    pub fn object_by_handle(&self, handle: ObjectHandle) -> Option<&IrObject> {
+        self.data.object_by_handle(handle)
+    }
+
+    /// Looks up mutable runtime object state by stable object handle.
+    ///
+    /// Returns `None` for invalid or removed handles.
+    pub fn object_runtime_by_handle(&self, handle: ObjectHandle) -> Option<&ObjectRuntimeState> {
+        self.data.object_runtime_by_handle(handle)
+    }
+
+    /// Updates object position and bounds by stable object handle.
+    ///
+    /// Returns `false` for invalid or removed handles.
+    pub fn update_object_bounds_position_by_handle(
+        &mut self,
+        handle: ObjectHandle,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    ) -> bool {
+        self.data
+            .update_object_bounds_position_by_handle(handle, x, y, width, height)
+    }
+
+    /// Removes an object by stable object handle.
+    ///
+    /// Returns `false` for invalid or already removed handles.
+    pub fn remove_object_by_handle(&mut self, handle: ObjectHandle) -> bool {
+        self.data.remove_object_by_handle(handle)
+    }
+
+    /// Sets runtime visibility for an object by handle.
+    ///
+    /// Returns `false` for invalid or removed handles.
+    pub fn set_object_visible_by_handle(&mut self, handle: ObjectHandle, visible: bool) -> bool {
+        self.data.set_object_visible_by_handle(handle, visible)
+    }
+
+    /// Sets runtime alive/enabled flag for an object by handle.
+    ///
+    /// When set to `false`, object memberships are removed from query index.
+    /// When set to `true`, memberships are rebuilt from current runtime bounds.
+    pub fn set_object_alive_by_handle(&mut self, handle: ObjectHandle, alive: bool) -> bool {
+        self.data.set_object_alive_by_handle(handle, alive)
+    }
+
+    /// Spawns a new object into an existing object layer and returns its stable handle.
+    ///
+    /// Returns `None` when `layer_idx` is invalid.
+    pub fn spawn_object_in_layer(
+        &mut self,
+        layer_idx: usize,
+        object: IrObject,
+    ) -> Option<ObjectHandle> {
+        self.data.spawn_object_in_layer(layer_idx, object)
+    }
+
+    /// Returns deduplicated object handles visible in `coords` for one object layer.
+    ///
+    /// Handles are returned in deterministic ascending handle order.
+    pub fn query_object_handles_in_coords(
+        &self,
+        layer_idx: usize,
+        coords: &[crate::spatial::ChunkCoord],
+    ) -> Vec<ObjectHandle> {
+        self.data.query_object_handles_in_coords(layer_idx, coords)
+    }
+
+    /// Queries visible object handles in a world-space view rectangle.
+    ///
+    /// Results are deduplicated, deterministic, and suitable for O(1) follow-up
+    /// handle-based operations.
+    pub fn query_visible_object_handles(
+        &self,
+        layer_idx: usize,
+        view_min: Vec2,
+        view_max: Vec2,
+        filter: ObjectQueryFilter<'_>,
+    ) -> Vec<ObjectHandle> {
+        self.data
+            .query_visible_object_handles(layer_idx, view_min, view_max, filter)
+    }
+
+    /// Queries visible authored object IDs in a world-space view rectangle.
+    pub fn query_visible_object_ids(
+        &self,
+        layer_idx: usize,
+        view_min: Vec2,
+        view_max: Vec2,
+        filter: ObjectQueryFilter<'_>,
+    ) -> Vec<u32> {
+        self.data
+            .query_visible_object_ids(layer_idx, view_min, view_max, filter)
     }
 
     /// Enables/disables object debug overlay drawing used by [`Map::draw`].

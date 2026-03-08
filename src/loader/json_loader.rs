@@ -324,6 +324,7 @@ pub fn decode_map_file_to_ir(path: &str) -> Result<(IrMap, PathBuf), MapError> {
         // (We keep image path relative; Map::from_ir will join with map_dir)
         ir_tilesets.push(IrTileset::Atlas {
             first_gid: ts.firstgid,
+            source: ts.source.clone(),
             image: ext.image,
             tile_w: ext.tilewidth,
             tile_h: ext.tileheight,
