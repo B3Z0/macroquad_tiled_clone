@@ -73,7 +73,7 @@ pub(crate) fn build_tile_state_from_ir(
         }
     }
 
-    let mut layer_draw_info: Vec<TileLayerDrawInfo> = Vec::new();
+    let mut tile_layer_draw_info: Vec<TileLayerDrawInfo> = Vec::new();
 
     for (layer_z, layer) in ir.layers.iter().enumerate() {
         let IrLayerKind::Tiles {
@@ -86,7 +86,7 @@ pub(crate) fn build_tile_state_from_ir(
         };
 
         let tile_layer_id = layer_z as LayerIdx;
-        let tile_layer_idx = layer_draw_info.len();
+        let tile_layer_idx = tile_layer_draw_info.len();
 
         let tw = ir.tile_w as f32;
         let th = ir.tile_h as f32;
@@ -126,7 +126,7 @@ pub(crate) fn build_tile_state_from_ir(
             }
         }
 
-        layer_draw_info.push(TileLayerDrawInfo {
+        tile_layer_draw_info.push(TileLayerDrawInfo {
             layer_id: tile_layer_id,
             visible: layer.visible,
             opacity: layer.opacity.clamp(0.0, 1.0),
@@ -138,8 +138,8 @@ pub(crate) fn build_tile_state_from_ir(
     }
 
     TileState {
-        tilesets,
+        tileset_runtime_info: tilesets,
         gid_lut,
-        layer_draw_info,
+        tile_layer_draw_info,
     }
 }

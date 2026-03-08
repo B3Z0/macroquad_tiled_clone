@@ -12,7 +12,7 @@ impl MapData {
     ) -> Option<Vec<(LayerIdx, crate::spatial::ChunkCoord, Vec2)>> {
         let authored = self
             .object_state
-            .layers
+            .object_layers
             .get(layer_idx)
             .and_then(|layer| layer.objects.get(object_idx))?;
 
@@ -31,21 +31,21 @@ impl MapData {
 
     pub(crate) fn debug_assert_object_sync_consistency(&self, handle: ObjectHandle) {
         let Some((layer_idx, object_idx)) = self.object_location(handle) else {
-            debug_assert!(self.index.object_memberships(handle).is_none());
+            debug_assert!(self.derived_index.object_memberships(handle).is_none());
             return;
         };
         let Some(runtime) = self
             .object_state
-            .runtime_by_layer
+            .object_runtime_by_layer
             .get(layer_idx)
             .and_then(|v| v.get(object_idx))
             .and_then(|r| r.as_ref())
         else {
-            debug_assert!(self.index.object_memberships(handle).is_none());
+            debug_assert!(self.derived_index.object_memberships(handle).is_none());
             return;
         };
 
-        let memberships = self.index.object_memberships(handle).unwrap_or(&[]);
+        let memberships = self.derived_index.object_memberships(handle).unwrap_or(&[]);
         let unique: HashSet<_> = memberships.iter().copied().collect();
         debug_assert_eq!(
             unique.len(),

@@ -21,9 +21,9 @@ pub(crate) struct MacroquadRenderAssets {
 
 impl MacroquadRenderAssets {
     pub(crate) async fn from_data(data: &MapData, base_dir: &Path) -> Result<Self, MapError> {
-        let mut tilesets = Vec::with_capacity(data.tile_state.tilesets.len());
+        let mut tilesets = Vec::with_capacity(data.tile_state.tileset_runtime_info.len());
 
-        for ts in &data.tile_state.tilesets {
+        for ts in &data.tile_state.tileset_runtime_info {
             let img_path = base_dir.join(&ts.image);
             let img_path_str = img_path
                 .to_str()

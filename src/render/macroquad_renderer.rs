@@ -72,7 +72,7 @@ impl Map {
     pub fn draw_visible_rect_with_stamp(&mut self, view_min: Vec2, view_max: Vec2, stamp: u32) {
         self.render_state.sync_with_data(&self.data);
         let coords = self.visible_coords_for_draw(view_min, view_max);
-        for tile_layer_idx in 0..self.data.tile_state.layer_draw_info.len() {
+        for tile_layer_idx in 0..self.data.tile_state.tile_layer_draw_info.len() {
             self.draw_tile_layer_from_coords(&coords, tile_layer_idx, stamp);
         }
     }
@@ -166,7 +166,7 @@ impl Map {
         let Some(layer) = self
             .data
             .tile_state
-            .layer_draw_info
+            .tile_layer_draw_info
             .get(tile_layer_idx)
             .copied()
         else {
@@ -181,7 +181,7 @@ impl Map {
         let seen = &mut self.render_state.seen_tiles;
 
         Self::for_each_visible_layer_bucket(
-            &self.data.index,
+            &self.data.derived_index,
             coords,
             layer.layer_id,
             |cc, bucket| {
@@ -241,7 +241,7 @@ impl Map {
         coords: &[crate::spatial::ChunkCoord],
         stamp: u32,
     ) {
-        for layer_idx in 0..self.data.object_state.layers.len() {
+        for layer_idx in 0..self.data.object_state.object_layers.len() {
             self.draw_object_debug_layer_from_coords(coords, layer_idx, stamp);
         }
     }
@@ -251,7 +251,7 @@ impl Map {
         coords: &[crate::spatial::ChunkCoord],
         stamp: u32,
     ) {
-        for layer_idx in 0..self.data.object_state.layers.len() {
+        for layer_idx in 0..self.data.object_state.object_layers.len() {
             self.draw_object_tiles_layer_from_coords(coords, layer_idx, stamp);
         }
     }
@@ -263,7 +263,7 @@ impl Map {
         stamp: u32,
     ) {
         self.render_state.sync_with_data(&self.data);
-        let Some(layer) = self.data.object_state.layers.get(layer_idx) else {
+        let Some(layer) = self.data.object_state.object_layers.get(layer_idx) else {
             return;
         };
         let Some(seen_debug) = self.render_state.seen_objects_debug.get_mut(layer_idx) else {
@@ -281,7 +281,7 @@ impl Map {
         let bucket_layer = layer.bucket_layer;
 
         Self::for_each_visible_layer_bucket(
-            &self.data.index,
+            &self.data.derived_index,
             coords,
             bucket_layer,
             |cc, layer_bucket| {
@@ -309,7 +309,7 @@ impl Map {
                     let Some(runtime) = self
                         .data
                         .object_state
-                        .runtime_by_layer
+                        .object_runtime_by_layer
                         .get(layer_idx)
                         .and_then(|v| v.get(object_idx))
                         .and_then(|r| r.as_ref())
@@ -381,7 +381,7 @@ impl Map {
         self.render_state.sync_with_data(&self.data);
         let gid_lut = &self.data.tile_state.gid_lut;
         let tilesets = &self.assets.tilesets;
-        let Some(layer) = self.data.object_state.layers.get(layer_idx) else {
+        let Some(layer) = self.data.object_state.object_layers.get(layer_idx) else {
             return;
         };
         let Some(seen_tiles) = self.render_state.seen_objects_tiles.get_mut(layer_idx) else {
@@ -394,7 +394,7 @@ impl Map {
         let bucket_layer = layer.bucket_layer;
 
         Self::for_each_visible_layer_bucket(
-            &self.data.index,
+            &self.data.derived_index,
             coords,
             bucket_layer,
             |cc, layer_bucket| {
@@ -422,7 +422,7 @@ impl Map {
                     let Some(runtime) = self
                         .data
                         .object_state
-                        .runtime_by_layer
+                        .object_runtime_by_layer
                         .get(layer_idx)
                         .and_then(|v| v.get(object_idx))
                         .and_then(|r| r.as_ref())
@@ -493,7 +493,7 @@ impl Map {
     }
 
     pub(crate) fn for_each_visible_layer_bucket<F>(
-        index: &GlobalIndex,
+        derived_index: &GlobalIndex,
         coords: &[crate::spatial::ChunkCoord],
         bucket_layer: LayerIdx,
         mut f: F,
@@ -501,7 +501,7 @@ impl Map {
         F: FnMut(crate::spatial::ChunkCoord, &crate::spatial::LayerBucket),
     {
         for cc in coords {
-            let Some(chunk) = index.buckets.get(cc) else {
+            let Some(chunk) = derived_index.buckets.get(cc) else {
                 continue;
             };
             let Some(bucket) = chunk.layers.get(&bucket_layer) else {

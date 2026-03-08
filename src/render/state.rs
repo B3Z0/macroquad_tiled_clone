@@ -19,18 +19,18 @@ impl RenderState {
     }
 
     pub(crate) fn sync_with_data(&mut self, data: &MapData) {
-        if self.seen_tiles.len() != data.index.handles.len() {
-            self.seen_tiles.resize(data.index.handles.len(), 0);
+        if self.seen_tiles.len() != data.derived_index.handles.len() {
+            self.seen_tiles.resize(data.derived_index.handles.len(), 0);
         }
-        if self.seen_objects_tiles.len() != data.object_state.layers.len() {
+        if self.seen_objects_tiles.len() != data.object_state.object_layers.len() {
             self.seen_objects_tiles
-                .resize_with(data.object_state.layers.len(), Vec::new);
+                .resize_with(data.object_state.object_layers.len(), Vec::new);
         }
-        if self.seen_objects_debug.len() != data.object_state.layers.len() {
+        if self.seen_objects_debug.len() != data.object_state.object_layers.len() {
             self.seen_objects_debug
-                .resize_with(data.object_state.layers.len(), Vec::new);
+                .resize_with(data.object_state.object_layers.len(), Vec::new);
         }
-        for (i, layer) in data.object_state.layers.iter().enumerate() {
+        for (i, layer) in data.object_state.object_layers.iter().enumerate() {
             let n = layer.objects.len();
             if self.seen_objects_tiles[i].len() != n {
                 self.seen_objects_tiles[i].resize(n, 0);

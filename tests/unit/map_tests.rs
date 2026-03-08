@@ -130,9 +130,9 @@ mod tests {
                 tilesets: vec![],
                 layers: vec![],
             },
-            index: GlobalIndex::new(),
+            derived_index: GlobalIndex::new(),
             object_state: ObjectState {
-                layers: vec![ObjectLayer {
+                object_layers: vec![ObjectLayer {
                     id: 0,
                     name: "objects".to_string(),
                     visible: true,
@@ -142,13 +142,13 @@ mod tests {
                     objects: vec![make_object(1), make_object(2), make_object(3)],
                     bucket_layer: 0,
                 }],
-                location_by_handle: vec![Some((0, 0)), Some((0, 1)), Some((0, 2))],
-                handles_by_layer: vec![vec![
+                object_location_by_handle: vec![Some((0, 0)), Some((0, 1)), Some((0, 2))],
+                object_handles_by_layer: vec![vec![
                     Some(crate::spatial::ObjectHandle(0)),
                     Some(crate::spatial::ObjectHandle(1)),
                     Some(crate::spatial::ObjectHandle(2)),
                 ]],
-                runtime_by_layer: vec![vec![
+                object_runtime_by_layer: vec![vec![
                     Some(ObjectRuntimeState {
                         alive: true,
                         visible: true,
@@ -176,9 +176,9 @@ mod tests {
                 ]],
             },
             tile_state: TileState {
-                tilesets: vec![],
+                tileset_runtime_info: vec![],
                 gid_lut: vec![],
-                layer_draw_info: vec![],
+                tile_layer_draw_info: vec![],
             },
             layer_plan: LayerPlan {
                 draw_order: vec![],
@@ -193,7 +193,7 @@ mod tests {
 
         let stamp = 42;
         let mut first_pass_drawn = 0usize;
-        for object_idx in 0..data.object_state.layers[0].objects.len() {
+        for object_idx in 0..data.object_state.object_layers[0].objects.len() {
             if state.seen_objects_tiles[0][object_idx] == stamp {
                 continue;
             }
@@ -202,7 +202,7 @@ mod tests {
         }
 
         let mut second_pass_drawn = 0usize;
-        for object_idx in 0..data.object_state.layers[0].objects.len() {
+        for object_idx in 0..data.object_state.object_layers[0].objects.len() {
             if state.seen_objects_tiles[0][object_idx] == stamp {
                 continue;
             }
@@ -221,14 +221,14 @@ mod tests {
         stamp: u32,
     ) -> Vec<u32> {
         map.render_state.sync_with_data(&map.data);
-        let Some(layer) = map.data.tile_state.layer_draw_info.get(tile_layer_idx).copied() else {
+        let Some(layer) = map.data.tile_state.tile_layer_draw_info.get(tile_layer_idx).copied() else {
             return Vec::new();
         };
         let mut out = Vec::new();
         let seen = &mut map.render_state.seen_tiles;
 
         Map::for_each_visible_layer_bucket(
-            &map.data.index,
+            &map.data.derived_index,
             coords,
             layer.layer_id,
             |_cc, bucket| {
@@ -266,7 +266,7 @@ mod tests {
 
             match kind {
                 LayerKindInfo::Tiles(tile_layer_idx) => {
-                    let Some(layer) = map.data.tile_state.layer_draw_info.get(tile_layer_idx) else {
+                    let Some(layer) = map.data.tile_state.tile_layer_draw_info.get(tile_layer_idx) else {
                         continue;
                     };
                     if !layer.visible {
@@ -274,7 +274,7 @@ mod tests {
                     }
 
                     Map::for_each_visible_layer_bucket(
-                        &map.data.index,
+                        &map.data.derived_index,
                         &coords,
                         layer.layer_id,
                         |cc, bucket| {
@@ -285,7 +285,7 @@ mod tests {
                     );
                 }
                 LayerKindInfo::Objects(object_layer_idx) => {
-                    let Some(layer) = map.data.object_state.layers.get(object_layer_idx) else {
+                    let Some(layer) = map.data.object_state.object_layers.get(object_layer_idx) else {
                         continue;
                     };
                     let Some(seen_layer) = map
@@ -301,7 +301,7 @@ mod tests {
                     let bucket_layer = layer.bucket_layer;
 
                     Map::for_each_visible_layer_bucket(
-                        &map.data.index,
+                        &map.data.derived_index,
                         &coords,
                         bucket_layer,
                         |cc, bucket| {
@@ -326,7 +326,7 @@ mod tests {
                                 };
                                 let Some(runtime) = map
                                     .data
-                                    .object_state.runtime_by_layer
+                                    .object_state.object_runtime_by_layer
                                     .get(object_layer_idx)
                                     .and_then(|v| v.get(object_idx))
                                     .and_then(|s| s.as_ref())
@@ -372,17 +372,17 @@ mod tests {
                     tilesets: vec![],
                     layers: vec![],
                 },
-                index,
+                derived_index: index,
                 object_state: ObjectState {
-                    layers: vec![],
-                    location_by_handle: vec![],
-                    handles_by_layer: vec![],
-                    runtime_by_layer: vec![],
+                    object_layers: vec![],
+                    object_location_by_handle: vec![],
+                    object_handles_by_layer: vec![],
+                    object_runtime_by_layer: vec![],
                 },
                 tile_state: TileState {
-                    tilesets: vec![],
+                    tileset_runtime_info: vec![],
                     gid_lut: vec![],
-                    layer_draw_info: vec![TileLayerDrawInfo {
+                    tile_layer_draw_info: vec![TileLayerDrawInfo {
                         layer_id: 0,
                         visible: true,
                         opacity: 1.0,
@@ -451,9 +451,9 @@ mod tests {
                     tilesets: vec![],
                     layers: vec![],
                 },
-                index,
+                derived_index: index,
                 object_state: ObjectState {
-                    layers: vec![ObjectLayer {
+                    object_layers: vec![ObjectLayer {
                         id: 1,
                         name: "objects".to_string(),
                         visible: true,
@@ -463,13 +463,13 @@ mod tests {
                         objects,
                         bucket_layer: 1,
                     }],
-                    location_by_handle: {
+                    object_location_by_handle: {
                         let mut v = vec![None; (object_handle.0 as usize) + 1];
                         v[object_handle.0 as usize] = Some((0, 0));
                         v
                     },
-                    handles_by_layer: vec![vec![Some(object_handle)]],
-                    runtime_by_layer: vec![vec![Some(ObjectRuntimeState {
+                    object_handles_by_layer: vec![vec![Some(object_handle)]],
+                    object_runtime_by_layer: vec![vec![Some(ObjectRuntimeState {
                         alive: true,
                         visible: true,
                         x: (CHUNK_SIZE - 8) as f32,
@@ -479,9 +479,9 @@ mod tests {
                     })]],
                 },
                 tile_state: TileState {
-                    tilesets: vec![],
+                    tileset_runtime_info: vec![],
                     gid_lut: vec![],
-                    layer_draw_info: vec![
+                    tile_layer_draw_info: vec![
                         TileLayerDrawInfo {
                             layer_id: 0,
                             visible: true,
@@ -591,17 +591,17 @@ mod tests {
                     tilesets: vec![],
                     layers: vec![],
                 },
-                index,
+                derived_index: index,
                 object_state: ObjectState {
-                    layers: vec![],
-                    location_by_handle: vec![],
-                    handles_by_layer: vec![],
-                    runtime_by_layer: vec![],
+                    object_layers: vec![],
+                    object_location_by_handle: vec![],
+                    object_handles_by_layer: vec![],
+                    object_runtime_by_layer: vec![],
                 },
                 tile_state: TileState {
-                    tilesets: vec![],
+                    tileset_runtime_info: vec![],
                     gid_lut: vec![],
-                    layer_draw_info: vec![TileLayerDrawInfo {
+                    tile_layer_draw_info: vec![TileLayerDrawInfo {
                         layer_id: 0,
                         visible: true,
                         opacity: 1.0,
@@ -644,8 +644,8 @@ mod tests {
         let path = fixture_path("external_props_map.json");
         let path_str = path.to_str().expect("fixture path must be utf-8");
         let data = MapData::load(path_str).expect("map data should load headlessly");
-        assert_eq!(data.object_state.layers.len(), 1);
-        assert_eq!(data.tile_state.layer_draw_info.len(), 2);
+        assert_eq!(data.object_state.object_layers.len(), 1);
+        assert_eq!(data.tile_state.tile_layer_draw_info.len(), 2);
         assert_eq!(data.layer_plan.draw_order, vec![0, 1, 2]);
     }
 
@@ -820,7 +820,7 @@ mod tests {
         let uniq: HashSet<_> = seq1.iter().copied().collect();
         assert_eq!(uniq.len(), 3);
 
-        let layer = &map.data.object_state.layers[0];
+        let layer = &map.data.object_state.object_layers[0];
         assert_eq!(
             map.render_state.seen_objects_tiles[0].len(),
             layer.objects.len()
@@ -887,7 +887,7 @@ mod tests {
         let path_str = path.to_str().expect("fixture path must be utf-8");
         let mut data = MapData::load(path_str).expect("map data should load headlessly");
 
-        let handle = data.object_state.handles_by_layer[0][0].expect("fixture should have one object");
+        let handle = data.object_state.object_handles_by_layer[0][0].expect("fixture should have one object");
         assert!(data.object_by_handle(handle).is_some());
 
         assert!(data.update_object_bounds_position_by_handle(
@@ -906,7 +906,7 @@ mod tests {
         assert_eq!(runtime.height, 64.0);
 
         let memberships = data
-            .index
+            .derived_index
             .object_memberships(handle)
             .expect("memberships should exist after move");
         assert!(!memberships.is_empty());
@@ -919,21 +919,21 @@ mod tests {
                 .visible
         );
         assert!(data.set_object_alive_by_handle(handle, false));
-        assert!(data.index.object_memberships(handle).is_none());
+        assert!(data.derived_index.object_memberships(handle).is_none());
         assert!(data.set_object_alive_by_handle(handle, true));
-        assert!(data.index.object_memberships(handle).is_some());
+        assert!(data.derived_index.object_memberships(handle).is_some());
 
         assert!(data.remove_object_by_handle(handle));
         assert!(!data.remove_object_by_handle(handle));
         assert!(data.object_by_handle(handle).is_none());
         assert!(data.object_runtime_by_handle(handle).is_none());
-        assert!(data.index.object_memberships(handle).is_none());
+        assert!(data.derived_index.object_memberships(handle).is_none());
     }
 
     #[test]
     fn draw_sequence_respects_runtime_visible_and_alive_flags() {
         let mut map = Map::__new_for_stamp_overflow_test(1);
-        let handle = map.data.object_state.handles_by_layer[0][0].expect("test object handle");
+        let handle = map.data.object_state.object_handles_by_layer[0][0].expect("test object handle");
 
         map.set_object_visible_by_handle(handle, false);
         let seq_hidden = collect_draw_sequence_for_test(&mut map, Vec2::ZERO, vec2(64.0, 64.0));
@@ -993,7 +993,7 @@ mod tests {
                     let _ = map.spawn_object_in_layer(0, obj);
                 }
                 2 => {
-                    let Some(layer_handles) = map.data.object_state.handles_by_layer.first() else {
+                    let Some(layer_handles) = map.data.object_state.object_handles_by_layer.first() else {
                         continue;
                     };
                     let live: Vec<_> = layer_handles.iter().flatten().copied().collect();
@@ -1008,7 +1008,7 @@ mod tests {
                     let _ = map.update_object_bounds_position_by_handle(handle, x, y, w, h);
                 }
                 3 => {
-                    let Some(layer_handles) = map.data.object_state.handles_by_layer.first() else {
+                    let Some(layer_handles) = map.data.object_state.object_handles_by_layer.first() else {
                         continue;
                     };
                     let live: Vec<_> = layer_handles.iter().flatten().copied().collect();
@@ -1023,7 +1023,7 @@ mod tests {
                     let _ = map.set_object_alive_by_handle(handle, !alive);
                 }
                 _ => {
-                    let Some(layer_handles) = map.data.object_state.handles_by_layer.first() else {
+                    let Some(layer_handles) = map.data.object_state.object_handles_by_layer.first() else {
                         continue;
                     };
                     let live: Vec<_> = layer_handles.iter().flatten().copied().collect();
@@ -1041,14 +1041,14 @@ mod tests {
             assert_eq!(uniq.len(), got_ids.len(), "query returned duplicate handles");
 
             let mut expected = Vec::new();
-            if let Some(layer) = map.data.object_state.layers.first() {
-                for (idx, slot) in map.data.object_state.handles_by_layer[0].iter().enumerate() {
+            if let Some(layer) = map.data.object_state.object_layers.first() {
+                for (idx, slot) in map.data.object_state.object_handles_by_layer[0].iter().enumerate() {
                     let Some(handle) = slot else {
                         continue;
                     };
                     let Some(runtime) = map
                         .data
-                        .object_state.runtime_by_layer
+                        .object_state.object_runtime_by_layer
                         .first()
                         .and_then(|v| v.get(idx))
                         .and_then(|s| s.as_ref())
@@ -1293,13 +1293,13 @@ mod tests {
 
     fn persisted_objects_for_policy_test(map: &Map, layer_idx: usize) -> Vec<PersistedObjectPolicyView> {
         let mut out = Vec::new();
-        let Some(layer) = map.data.object_state.layers.get(layer_idx) else {
+        let Some(layer) = map.data.object_state.object_layers.get(layer_idx) else {
             return out;
         };
         for (i, authored) in layer.objects.iter().enumerate() {
             let Some(Some(handle)) = map
                 .data
-                .object_state.handles_by_layer
+                .object_state.object_handles_by_layer
                 .get(layer_idx)
                 .and_then(|v| v.get(i))
             else {
@@ -1422,7 +1422,7 @@ mod tests {
         let src_str = source.to_str().expect("fixture path utf8");
         let mut data = MapData::load(src_str).expect("source map should load");
 
-        let handle = data.object_state.handles_by_layer[0][0].expect("object handle exists");
+        let handle = data.object_state.object_handles_by_layer[0][0].expect("object handle exists");
         assert!(data.update_object_bounds_position_by_handle(
             handle, 144.0, 55.0, 30.0, 42.0
         ));
@@ -1651,5 +1651,9 @@ mod tests {
         }
     }
 }
+
+
+
+
 
 

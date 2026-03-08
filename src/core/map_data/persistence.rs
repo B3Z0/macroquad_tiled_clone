@@ -39,14 +39,14 @@ impl MapData {
                     }));
                 }
                 Some(LayerKindInfo::Objects(object_layer_idx)) => {
-                    let Some(layer) = self.object_state.layers.get(object_layer_idx) else {
+                    let Some(layer) = self.object_state.object_layers.get(object_layer_idx) else {
                         continue;
                     };
                     let mut objects_json = Vec::new();
                     for (idx, authored) in layer.objects.iter().enumerate() {
                         let Some(Some(_handle)) = self
                             .object_state
-                            .handles_by_layer
+                            .object_handles_by_layer
                             .get(object_layer_idx)
                             .and_then(|v| v.get(idx))
                         else {
@@ -54,7 +54,7 @@ impl MapData {
                         };
                         let Some(runtime) = self
                             .object_state
-                            .runtime_by_layer
+                            .object_runtime_by_layer
                             .get(object_layer_idx)
                             .and_then(|v| v.get(idx))
                             .and_then(|r| r.as_ref())

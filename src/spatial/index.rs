@@ -107,13 +107,13 @@ impl Default for GlobalChunk {
 pub struct TileLoc {
     pub chunk: ChunkCoord,
     pub layer: LayerIdx,
-    pub index: usize,
+    pub derived_index: usize,
 }
 
 pub struct ObjectLoc {
     pub chunk: ChunkCoord,
     pub layer: LayerIdx,
-    pub index: usize,
+    pub derived_index: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -188,7 +188,7 @@ impl GlobalIndex {
             .layers
             .get(&loc.layer)?
             .tiles
-            .get(loc.index)
+            .get(loc.derived_index)
             .and_then(|rec| {
                 if rec.handle == handle {
                     Some(rec)
@@ -205,7 +205,7 @@ impl GlobalIndex {
             .layers
             .get(&loc.layer)?
             .objects
-            .get(loc.index)
+            .get(loc.derived_index)
             .and_then(|rec| {
                 if rec.handle == handle {
                     Some(rec)
@@ -282,7 +282,7 @@ impl GlobalIndex {
             self.handles[hidx] = Some(TileLoc {
                 chunk,
                 layer,
-                index: idx,
+                derived_index: idx,
             });
         }
     }
@@ -313,8 +313,11 @@ impl GlobalIndex {
                     if let Some(moved_handle) = moved {
                         let midx = moved_handle.0 as usize;
                         if let Some(Some(loc)) = self.handles.get_mut(midx) {
-                            if loc.chunk == *cc && loc.layer == *layer_idx && loc.index == last {
-                                loc.index = i;
+                            if loc.chunk == *cc
+                                && loc.layer == *layer_idx
+                                && loc.derived_index == last
+                            {
+                                loc.derived_index = i;
                             }
                         }
                     }
@@ -364,7 +367,7 @@ impl GlobalIndex {
             self.object_handles[hidx] = Some(ObjectLoc {
                 chunk,
                 layer,
-                index: idx,
+                derived_index: idx,
             });
         }
         let m = ObjectMembership { chunk, layer };
@@ -447,9 +450,9 @@ impl GlobalIndex {
             if let Some(Some(loc)) = self.object_handles.get_mut(midx) {
                 if loc.chunk == membership.chunk
                     && loc.layer == membership.layer
-                    && loc.index == last
+                    && loc.derived_index == last
                 {
-                    loc.index = idx;
+                    loc.derived_index = idx;
                 }
             }
         }

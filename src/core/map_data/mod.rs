@@ -105,23 +105,23 @@ pub(crate) use shared::layer_plan::{build_draw_order_and_kind, LayerKindInfo};
 /// - `index` is derived query/cache state synchronized from canonical content.
 pub struct MapData {
     pub(crate) source_ir: IrMap,
-    pub(crate) index: GlobalIndex,
+    pub(crate) derived_index: GlobalIndex,
     pub(crate) object_state: ObjectState,
     pub(crate) tile_state: TileState,
     pub(crate) layer_plan: LayerPlan,
 }
 
 pub(crate) struct ObjectState {
-    pub(crate) layers: Vec<ObjectLayer>,
-    pub(crate) location_by_handle: Vec<Option<(usize, usize)>>,
-    pub(crate) handles_by_layer: Vec<Vec<Option<ObjectHandle>>>,
-    pub(crate) runtime_by_layer: Vec<Vec<Option<ObjectRuntimeState>>>,
+    pub(crate) object_layers: Vec<ObjectLayer>,
+    pub(crate) object_location_by_handle: Vec<Option<(usize, usize)>>,
+    pub(crate) object_handles_by_layer: Vec<Vec<Option<ObjectHandle>>>,
+    pub(crate) object_runtime_by_layer: Vec<Vec<Option<ObjectRuntimeState>>>,
 }
 
 pub(crate) struct TileState {
-    pub(crate) tilesets: Vec<TilesetRuntimeInfo>,
+    pub(crate) tileset_runtime_info: Vec<TilesetRuntimeInfo>,
     pub(crate) gid_lut: Vec<u16>, // lookup table for tile GIDs to tileset indices
-    pub(crate) layer_draw_info: Vec<TileLayerDrawInfo>,
+    pub(crate) tile_layer_draw_info: Vec<TileLayerDrawInfo>,
 }
 
 pub(crate) struct LayerPlan {

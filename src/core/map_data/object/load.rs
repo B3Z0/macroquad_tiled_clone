@@ -76,9 +76,9 @@ pub(crate) fn build_object_state_from_layers(
     }
 
     ObjectState {
-        layers: object_layers,
-        location_by_handle: object_location_by_handle,
-        handles_by_layer: object_handles_by_layer,
-        runtime_by_layer: object_runtime_by_layer,
+        object_layers,
+        object_location_by_handle,
+        object_handles_by_layer,
+        object_runtime_by_layer,
     }
 }
