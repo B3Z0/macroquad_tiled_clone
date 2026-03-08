@@ -147,6 +147,9 @@ impl Map {
                     object_runtime_by_layer: vec![object_runtime],
                 },
                 tile_state: TileState {
+                    tile_location_by_handle: vec![],
+                    tile_handles_by_layer: vec![],
+                    tile_runtime_by_layer: vec![],
                     tileset_runtime_info: vec![],
                     gid_lut: vec![],
                     tile_layer_draw_info: vec![],

@@ -3,7 +3,7 @@
 //! This module owns canonical runtime map content and derived query/index sync helpers.
 
 use crate::ir_map::{IrMap, IrObject, Properties};
-use crate::spatial::{GlobalIndex, LayerIdx, ObjectHandle};
+use crate::spatial::{GlobalIndex, LayerIdx, ObjectHandle, TileHandle, TileId};
 use macroquad::prelude::*;
 use std::collections::HashMap;
 
@@ -92,6 +92,17 @@ pub(crate) struct TileLayerDrawInfo {
     pub(crate) opacity: f32,
 }
 
+/// Mutable runtime state for one logical tile record.
+#[derive(Clone, Copy)]
+#[allow(dead_code)]
+pub(crate) struct TileRuntimeState {
+    pub(crate) alive: bool,
+    pub(crate) visible: bool,
+    pub(crate) id: TileId,
+    pub(crate) x: f32,
+    pub(crate) y: f32,
+}
+
 pub(crate) use shared::layer_plan::{build_draw_order_and_kind, LayerKindInfo};
 
 /// Runtime/query data for a loaded map, independent from render-frame state.
@@ -115,8 +126,12 @@ pub(crate) struct ObjectState {
 }
 
 pub(crate) struct TileState {
-    // TODO(T1.1): add tile canonical runtime containers for handle-centric parity:
-    // `tile_location_by_handle`, `tile_handles_by_layer`, `tile_runtime_by_layer`.
+    #[allow(dead_code)]
+    pub(crate) tile_location_by_handle: Vec<Option<(usize, usize)>>,
+    #[allow(dead_code)]
+    pub(crate) tile_handles_by_layer: Vec<Vec<Option<TileHandle>>>,
+    #[allow(dead_code)]
+    pub(crate) tile_runtime_by_layer: Vec<Vec<Option<TileRuntimeState>>>,
     pub(crate) tileset_runtime_info: Vec<TilesetRuntimeInfo>,
     pub(crate) gid_lut: Vec<u16>, // lookup table for tile GIDs to tileset indices
     pub(crate) tile_layer_draw_info: Vec<TileLayerDrawInfo>,

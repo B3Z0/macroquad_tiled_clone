@@ -176,6 +176,9 @@ mod tests {
                 ]],
             },
             tile_state: TileState {
+                tile_location_by_handle: vec![],
+                tile_handles_by_layer: vec![],
+                tile_runtime_by_layer: vec![],
                 tileset_runtime_info: vec![],
                 gid_lut: vec![],
                 tile_layer_draw_info: vec![],
@@ -380,6 +383,9 @@ mod tests {
                     object_runtime_by_layer: vec![],
                 },
                 tile_state: TileState {
+                    tile_location_by_handle: vec![],
+                    tile_handles_by_layer: vec![],
+                    tile_runtime_by_layer: vec![],
                     tileset_runtime_info: vec![],
                     gid_lut: vec![],
                     tile_layer_draw_info: vec![TileLayerDrawInfo {
@@ -479,6 +485,9 @@ mod tests {
                     })]],
                 },
                 tile_state: TileState {
+                    tile_location_by_handle: vec![],
+                    tile_handles_by_layer: vec![],
+                    tile_runtime_by_layer: vec![],
                     tileset_runtime_info: vec![],
                     gid_lut: vec![],
                     tile_layer_draw_info: vec![
@@ -599,6 +608,9 @@ mod tests {
                     object_runtime_by_layer: vec![],
                 },
                 tile_state: TileState {
+                    tile_location_by_handle: vec![],
+                    tile_handles_by_layer: vec![],
+                    tile_runtime_by_layer: vec![],
                     tileset_runtime_info: vec![],
                     gid_lut: vec![],
                     tile_layer_draw_info: vec![TileLayerDrawInfo {
@@ -647,6 +659,48 @@ mod tests {
         assert_eq!(data.object_state.object_layers.len(), 1);
         assert_eq!(data.tile_state.tile_layer_draw_info.len(), 2);
         assert_eq!(data.layer_plan.draw_order, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn tile_handle_maps_are_consistent_after_load() {
+        let path = fixture_path("external_props_map.json");
+        let path_str = path.to_str().expect("fixture path must be utf-8");
+        let data = MapData::load(path_str).expect("map data should load headlessly");
+
+        assert_eq!(
+            data.tile_state.tile_handles_by_layer.len(),
+            data.tile_state.tile_layer_draw_info.len()
+        );
+        assert_eq!(
+            data.tile_state.tile_runtime_by_layer.len(),
+            data.tile_state.tile_layer_draw_info.len()
+        );
+
+        for (layer_idx, layer_handles) in data.tile_state.tile_handles_by_layer.iter().enumerate() {
+            let runtime_layer = &data.tile_state.tile_runtime_by_layer[layer_idx];
+            assert_eq!(layer_handles.len(), runtime_layer.len());
+
+            for (slot_idx, handle_slot) in layer_handles.iter().enumerate() {
+                let Some(handle) = handle_slot else {
+                    continue;
+                };
+
+                let location = data
+                    .tile_state
+                    .tile_location_by_handle
+                    .get(handle.0 as usize)
+                    .and_then(|loc| *loc)
+                    .expect("tile location must exist for populated tile handle");
+                assert_eq!(location, (layer_idx, slot_idx));
+
+                let runtime = runtime_layer[slot_idx]
+                    .as_ref()
+                    .expect("runtime slot must exist for populated tile handle");
+                assert!(runtime.alive);
+                assert!(runtime.visible);
+                assert_ne!(runtime.id.clean(), 0);
+            }
+        }
     }
 
     #[test]
