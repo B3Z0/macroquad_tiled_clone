@@ -31,6 +31,8 @@ pub(crate) fn build_tile_state_from_ir(
     layer_kind_by_id: &HashMap<LayerId, LayerKindInfo>,
     index: &mut GlobalIndex,
 ) -> TileState {
+    // TODO(T1.1): populate tile handle->layer/slot/runtime containers in parallel with
+    // `tile_layer_draw_info` while preserving current draw/query behavior.
     let (tilesets, gid_lut) = build_tileset_runtime_and_lut(ir);
 
     let mut tile_layer_draw_info: Vec<TileLayerDrawInfo> = Vec::new();
@@ -156,6 +158,8 @@ fn index_tile_record(
     world: Vec2,
     tileset: &TilesetRuntimeInfo,
 ) {
+    // TODO(T3.1): route tile insertions through shared tile-runtime/index-sync helpers once
+    // handle-centric tile mutation APIs are introduced.
     let draw_origin = tile_draw_origin(world, ir.tile_h, tileset.tile_h);
     let oversized = tileset.tile_w > ir.tile_w || tileset.tile_h > ir.tile_h;
     if oversized {

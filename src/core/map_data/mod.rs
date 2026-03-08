@@ -115,6 +115,8 @@ pub(crate) struct ObjectState {
 }
 
 pub(crate) struct TileState {
+    // TODO(T1.1): add tile canonical runtime containers for handle-centric parity:
+    // `tile_location_by_handle`, `tile_handles_by_layer`, `tile_runtime_by_layer`.
     pub(crate) tileset_runtime_info: Vec<TilesetRuntimeInfo>,
     pub(crate) gid_lut: Vec<u16>, // lookup table for tile GIDs to tileset indices
     pub(crate) tile_layer_draw_info: Vec<TileLayerDrawInfo>,

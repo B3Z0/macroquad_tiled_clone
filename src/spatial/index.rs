@@ -124,6 +124,8 @@ pub struct ObjectMembership {
 
 pub struct GlobalIndex {
     pub buckets: HashMap<ChunkCoord, GlobalChunk>,
+    // TODO(T1.1): add canonical tile-location membership map for multi-chunk tile parity
+    // with object memberships, while keeping `handles` as the O(1) primary lookup.
     pub handles: Vec<Option<TileLoc>>,
     object_handles: Vec<Option<ObjectLoc>>,
     object_memberships: Vec<Vec<ObjectMembership>>,
@@ -278,6 +280,8 @@ impl GlobalIndex {
 
         // Keep first location as canonical metadata; a handle may exist in
         // multiple chunks for oversized tiles and still share one identity.
+        // TODO(T3.1): promote tile memberships to an explicit sibling structure to support
+        // move/update/remove parity with object membership sync invariants.
         if self.handles[hidx].is_none() {
             self.handles[hidx] = Some(TileLoc {
                 chunk,
@@ -695,5 +699,80 @@ mod tests {
             .object_memberships(handle)
             .expect("memberships should still exist");
         assert_eq!(memberships.len(), 2);
+    }
+
+    fn lcg_next(state: &mut u64) -> u32 {
+        *state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+        (*state >> 32) as u32
+    }
+
+    fn tile_stress_checksum(seed: u64, steps: usize) -> u64 {
+        let mut index = GlobalIndex::new();
+        let mut rng = seed;
+        let mut live = Vec::<TileHandle>::new();
+
+        for _ in 0..steps {
+            let op = lcg_next(&mut rng) % 3;
+            match op {
+                // Add one tile in a random chunk.
+                0 => {
+                    let layer = (lcg_next(&mut rng) % 4) as LayerIdx;
+                    let x = ((lcg_next(&mut rng) % 8) as i32) * CHUNK_SIZE + 8;
+                    let y = ((lcg_next(&mut rng) % 8) as i32) * CHUNK_SIZE + 8;
+                    let id = TileId((lcg_next(&mut rng) % 64) + 1);
+                    let h = index.add_tile(id, layer, vec2(x as f32, y as f32));
+                    live.push(h);
+                }
+                // Remove a random live tile handle.
+                1 if !live.is_empty() => {
+                    let idx = (lcg_next(&mut rng) as usize) % live.len();
+                    let h = live.swap_remove(idx);
+                    let _ = index.remove_tile(h);
+                }
+                // Insert oversized-style multi-chunk memberships with one logical handle.
+                _ => {
+                    let h = index.alloc_handle();
+                    let layer = (lcg_next(&mut rng) % 4) as LayerIdx;
+                    let base_x = ((lcg_next(&mut rng) % 8) as i32) * CHUNK_SIZE + (CHUNK_SIZE - 4);
+                    let base_y = ((lcg_next(&mut rng) % 8) as i32) * CHUNK_SIZE + 12;
+                    let world = vec2(base_x as f32, base_y as f32);
+                    let id = TileId((lcg_next(&mut rng) % 64) + 1);
+                    let c0 = world_to_chunk(world);
+                    let c1 = ChunkCoord {
+                        x: c0.x + 1,
+                        y: c0.y,
+                    };
+                    index.insert_tile_with_handle(h, id, layer, c0, world);
+                    index.insert_tile_with_handle(h, id, layer, c1, world);
+                    live.push(h);
+                }
+            }
+        }
+
+        let mut checksum = 0u64;
+        for handle in live {
+            if let Some(rec) = index.tile_rec(handle) {
+                checksum = checksum
+                    .wrapping_mul(1099511628211)
+                    .wrapping_add(rec.id.clean() as u64)
+                    .wrapping_add(handle.0 as u64);
+            }
+        }
+        checksum
+    }
+
+    #[test]
+    #[ignore = "Baseline stress harness entry point for upcoming tile runtime mutation parity"]
+    fn tile_mutation_stress_baseline_is_deterministic() {
+        let a = tile_stress_checksum(0xC0FFEE, 2_000);
+        let b = tile_stress_checksum(0xC0FFEE, 2_000);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    #[ignore = "Long-running stress harness entry point for local mutation soak checks"]
+    fn tile_mutation_stress_baseline_long_run() {
+        let checksum = tile_stress_checksum(0xBAD5EED, 20_000);
+        assert_ne!(checksum, 0);
     }
 }

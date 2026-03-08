@@ -5,6 +5,7 @@ use crate::spatial::CHUNK_SIZE;
 use macroquad::prelude::{vec2, Vec2};
 
 impl MapData {
+    // TODO(T2.1/T4.1): add tile handle-centric and region tile query APIs here.
     pub(crate) fn visible_coords_for_draw(
         &self,
         view_min: Vec2,
