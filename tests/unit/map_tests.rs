@@ -985,6 +985,38 @@ mod tests {
     }
 
     #[test]
+    fn tile_handle_lookup_rejects_invalid_and_stale_handles_safely() {
+        let path = fixture_path("external_props_map.json");
+        let path_str = path.to_str().expect("fixture path must be utf-8");
+        let mut data = MapData::load(path_str).expect("map data should load headlessly");
+
+        let invalid = TileHandle(999_999);
+        assert!(data.tile_by_handle(invalid).is_none());
+        assert!(data.tile_runtime_by_handle(invalid).is_none());
+
+        let (layer_idx, slot_idx, handle) = data
+            .tile_state
+            .runtime
+            .tile_handles_by_layer
+            .iter()
+            .enumerate()
+            .find_map(|(li, layer)| {
+                layer
+                    .iter()
+                    .enumerate()
+                    .find_map(|(si, slot)| slot.map(|h| (li, si, h)))
+            })
+            .expect("fixture must have at least one non-empty tile");
+
+        assert!(data.tile_by_handle(handle).is_some());
+        assert!(data.tile_runtime_by_handle(handle).is_some());
+
+        data.tile_state.runtime.tile_handles_by_layer[layer_idx][slot_idx] = None;
+        assert!(data.tile_by_handle(handle).is_none());
+        assert!(data.tile_runtime_by_handle(handle).is_none());
+    }
+
+    #[test]
     fn repeated_object_move_and_remove_by_handle_is_deterministic() {
         let path = fixture_path("external_props_map.json");
         let path_str = path.to_str().expect("fixture path must be utf-8");

@@ -20,7 +20,7 @@ pub use crate::core::{LayerId, MapData, ObjectLayer, ObjectQueryFilter, ObjectRu
 use crate::render::cull::{query_visible_rect, visible_chunk_coords_rect};
 pub use crate::spatial::ObjectHandle;
 #[cfg(test)]
-use crate::spatial::{world_to_chunk, LayerIdx, TileId, CHUNK_SIZE};
+use crate::spatial::{world_to_chunk, LayerIdx, TileHandle, TileId, CHUNK_SIZE};
 
 /// Loaded Tiled map with rendering helpers.
 ///

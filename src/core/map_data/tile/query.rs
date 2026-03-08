@@ -1,7 +1,7 @@
 //! Tile-visible chunk query helpers.
 
-use super::super::MapData;
-use crate::spatial::CHUNK_SIZE;
+use super::super::{MapData, TileRuntimeState};
+use crate::spatial::{TileHandle, TileId, CHUNK_SIZE};
 use macroquad::prelude::{vec2, Vec2};
 
 impl MapData {
@@ -34,5 +34,50 @@ impl MapData {
             }
         }
         coords
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn tile_by_handle(&self, handle: TileHandle) -> Option<TileId> {
+        let (layer_idx, slot_idx) = self.tile_location(handle)?;
+        let runtime = self
+            .tile_state
+            .runtime
+            .tile_runtime_by_layer
+            .get(layer_idx)?
+            .get(slot_idx)?
+            .as_ref()?;
+        Some(runtime.id)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn tile_runtime_by_handle(&self, handle: TileHandle) -> Option<&TileRuntimeState> {
+        let (layer_idx, slot_idx) = self.tile_location(handle)?;
+        self.tile_state
+            .runtime
+            .tile_runtime_by_layer
+            .get(layer_idx)?
+            .get(slot_idx)?
+            .as_ref()
+    }
+
+    #[allow(dead_code)]
+    fn tile_location(&self, handle: TileHandle) -> Option<(usize, usize)> {
+        let (layer_idx, slot_idx) = self
+            .tile_state
+            .runtime
+            .tile_location_by_handle
+            .get(handle.0 as usize)?
+            .as_ref()?;
+        let slot_handle = self
+            .tile_state
+            .runtime
+            .tile_handles_by_layer
+            .get(*layer_idx)?
+            .get(*slot_idx)?
+            .as_ref()?;
+        if *slot_handle != handle {
+            return None;
+        }
+        Some((*layer_idx, *slot_idx))
     }
 }
