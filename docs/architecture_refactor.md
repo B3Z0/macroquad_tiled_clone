@@ -1,12 +1,15 @@
-# Architecture Refactor Plan
+# Architecture Refactor Status
+
+## Status
+
+This refactor is implemented in the current codebase.
+The document is kept as an architecture snapshot describing the ownership boundaries that now exist, not as a future plan.
 
 ## Goal
-Define hard ownership boundaries so map runtime/query logic and macroquad rendering logic are separated internally, while preserving the current public `Map` API during transition.
 
-## Current Problem
-`Map` currently owns runtime data, render assets, and frame/render state in one struct ([src/map.rs](../src/map.rs)). This makes responsibilities unclear and increases refactor risk.
+Define hard ownership boundaries so map runtime/query logic and macroquad rendering logic stay separated internally while preserving the public `Map` API.
 
-## Target Components
+## Components
 
 ### 1) `MapData` (canonical mutable runtime state)
 Owns canonical gameplay/runtime truth.
@@ -41,7 +44,7 @@ Owns draw execution.
 Consumes `MapData + RenderState + MacroquadRenderAssets`.
 
 ### 5) `Map` facade (compat API)
-Public compatibility layer preserving current external API.
+Public compatibility layer preserving the external API.
 - Delegates load/query/render calls to target components
 - Keeps stable call sites while internals are decoupled
 
@@ -52,7 +55,7 @@ Public compatibility layer preserving current external API.
 4. Texture loading/storage belongs to `MacroquadRenderAssets`.
 5. Stamp lifecycle and dedupe buffers belong to `RenderState`.
 6. Draw-call orchestration belongs to `MacroquadMapRenderer`.
-7. `Map` facade contains no business logic long-term; only orchestration/delegation.
+7. `Map` facade should remain orchestration/delegation only.
 8. Canonical->index synchronization uses eager incremental updates on every mutation.
 
 ## Current Ownership Snapshot
@@ -123,7 +126,7 @@ Current `MapData` ownership from [src/core/map_data/mod.rs](../src/core/map_data
 - `src/map.rs`
   - stable facade API over core + render components
 
-## Non-Goals (Refactor Track)
+## Non-Goals
 - No runtime behavior changes in readability-only tickets
 - No breaking public API changes
 - No coupling of render internals back into canonical state
@@ -138,4 +141,4 @@ Current `MapData` ownership from [src/core/map_data/mod.rs](../src/core/map_data
 - Architecture boundary is explicit and documented.
 - Every current `Map` field maps to one target owner.
 - Ownership rules are unambiguous for stamps, textures, and queries.
-- Naming and readability conventions are defined in `docs/code_style.md` before module-split refactors.
+- Naming and readability conventions are defined in `docs/code_style.md` for continued maintenance.

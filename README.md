@@ -25,11 +25,23 @@ The crate is now organized around three responsibilities:
 - Optional debug outlines via `set_debug_draw(true)`
 - Handle-centric object operations:
   - `object_by_handle(handle)`
+  - `object_runtime_by_handle(handle)`
   - `update_object_bounds_position_by_handle(handle, x, y, w, h)`
+  - `set_object_visible_by_handle(handle, visible)`
+  - `set_object_alive_by_handle(handle, alive)`
+  - `spawn_object_in_layer(layer_idx, object)`
   - `remove_object_by_handle(handle)`
   - `query_visible_object_handles(layer_idx, view_min, view_max, filter)`
   - `query_visible_object_ids(layer_idx, view_min, view_max, filter)`
-  - `save_to_json(path)` from canonical runtime state
+- Handle-centric tile operations:
+  - `query_visible_tile_handles(layer_idx, view_min, view_max, filter)`
+  - `query_visible_tile_handles_all(view_min, view_max, filter)`
+  - `set_tiles_visible_by_handle(handles, visible)`
+  - `set_tiles_alive_by_handle(handles, alive)`
+  - `update_tiles_gid_by_handle(handles, new_gid)`
+  - `replace_visible_tiles_gid_in_rect(layer_idx, view_min, view_max, filter, new_gid)`
+  - `disable_visible_tiles_in_rect(layer_idx, view_min, view_max, filter)`
+- `save_to_json(path)` from canonical runtime state
 
 ## Not Supported
 
@@ -72,7 +84,9 @@ Visible query API (engine-facing):
 
 - `query_visible_object_handles(...)` returns stable handles for O(1) follow-up mutations.
 - `query_visible_object_ids(...)` returns authored Tiled object ids for ID-based logic.
+- `query_visible_tile_handles(...)` and `query_visible_tile_handles_all(...)` expose deterministic, deduped tile handle queries.
 - Optional filters: `kind` (`class_name`) and `tag`/`tags` object properties.
+- Tile filtering currently supports exact clean-gid matching through `TileQueryFilter`.
 - Performance characteristics (MVP):
   - Chunk selection is proportional to covered chunk count for the view rectangle.
   - Candidate scan is proportional to visible bucket entries in those chunks.
@@ -106,6 +120,7 @@ map.draw_objects_debug_with_stamp(view_min, view_max, stamp);
 - `examples/basic_map.rs`: one-call `map.draw(...)` flow.
 - `examples/objects.rs`: manual stamp composition flow.
 - `examples/split_screen.rs`: two cameras/viewports drawing different world rectangles.
+- `docs/game_integration_guide.md`: end-to-end guide for using the crate in a real game loop.
 
 ## Quickstart
 
@@ -157,4 +172,4 @@ map.draw_objects_debug_with_stamp(view_min, view_max, stamp);
 - Place runtime/query logic in `src/core/*` and keep it free from render imports.
 - Place Macroquad-specific draw/texture/state logic in `src/render/*`.
 - Keep `src/map.rs` as a facade/delegation layer, not a large implementation file.
-- When changing draw behavior, update regression tests in `src/map_tests.rs` (dedupe, stamps, culling, draw order).
+- When changing draw behavior, update regression tests in `tests/unit/map_tests.rs` (dedupe, stamps, culling, draw order).

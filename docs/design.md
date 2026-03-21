@@ -13,9 +13,14 @@ Stable public surface:
 - `Map::draw(view_min, view_max)` for normal rendering
 - `Map::draw_visible_rect(view_min, view_max)` for tile-only advanced flow
 - `Map::draw_visible_rect_with_stamp(view_min, view_max, stamp)` for tile-only manual composition
+- `Map::draw_objects_tiles(view_min, view_max)` for standalone tile-object rendering
+- `Map::draw_objects_debug(view_min, view_max)` for standalone debug overlay rendering
 - `Map::set_debug_draw(enabled)`
 - `Map::set_cull_padding(pixels)`
 - Object inspection accessors (`object_layers`, `objects`)
+- Handle-centric object APIs (`object_by_handle`, `object_runtime_by_handle`, visibility/alive toggles, spawn/remove)
+- Handle-centric tile APIs (`query_visible_tile_handles*`, `set_tiles_*_by_handle`, region tile mutations)
+- `Map::save_to_json(path)`
 
 Advanced/manual surface:
 
@@ -88,6 +93,7 @@ Canonical state boundary rule:
 
 - Load/query only through `MapData::load(path)`.
 - Use `object_layers()` and `objects()` for runtime systems.
+- Use handle-centric query/mutation APIs on `MapData` when you want runtime mutation without textures.
 - No texture loading is required on this path.
 
 ### Render Path
@@ -165,7 +171,7 @@ The loading path is panic-free and returns typed `MapError` values:
 - If adding runtime/query features, implement in `src/core/*` first, then expose through facade as needed.
 - If adding draw behavior, implement in `src/render/macroquad_renderer.rs` and keep `Map` methods stable.
 - Do not re-introduce dedupe or texture ownership into `ObjectLayer`/`MapData`.
-- Keep regression coverage in `src/map_tests.rs` for:
+- Keep regression coverage in `tests/unit/map_tests.rs` for:
   - dedupe invariants
   - stamp overflow behavior
   - oversized tile anchoring/culling
